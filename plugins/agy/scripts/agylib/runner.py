@@ -715,13 +715,15 @@ class JobRunner:
             self.job["baseline"], name=name, mounts=self._mounts(writable=True), home=container.export_home(self.dir)
         )
         self.store.update(self.job_id, lambda r: r.update({"container": name}))
+        proc: subprocess.CompletedProcess | None = None
+        removed = False
         try:
-            proc: subprocess.CompletedProcess | None = subprocess.run(
-                command, capture_output=True, text=True, timeout=EXPORT_TIMEOUT_SECONDS
-            )
+            proc = subprocess.run(command, capture_output=True, text=True, timeout=EXPORT_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired:
-            proc = None
-        removed = container.remove(name)
+            pass
+        finally:
+            # Also when a cancel or session end stops the worker mid-export.
+            removed = container.remove(name)
         if proc is not None and proc.returncode == 0:
             if not removed:
                 raise ContainerNotRemoved(name)

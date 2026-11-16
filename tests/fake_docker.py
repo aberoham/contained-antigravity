@@ -15,6 +15,7 @@ import json
 import os
 import shutil
 import sys
+import time
 
 VALUE_OPTIONS = {"--entrypoint", "--name", "--user", "--env", "--volume", "--workdir", "--format"}
 
@@ -94,6 +95,8 @@ def main() -> int:
             print("0123456789ab")
         return 0
     if argv[:1] == ["run"]:
+        if "_export" in argv and os.environ.get("FAKE_DOCKER_EXPORT_SLEEPS"):
+            time.sleep(60)
         if "_export" in argv and os.environ.get("FAKE_DOCKER_EXPORT_FAILS"):
             sys.stderr.write("export: no space left on device\n")
             return 1

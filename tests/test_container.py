@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
+import time
 from pathlib import Path
 
 from agylib import container
@@ -505,7 +507,7 @@ def test_a_round_that_fails_in_cleanup_hides_the_earlier_patch(contained, repo):
     assert "changed no files" in contained.run("apply", job["id"], "--check").stdout
 
 
-def test_deleting_a_job_tries_its_leftover_container_again(contained):
+def test_cleaning_up_a_job_tries_its_leftover_container_again(contained):
     contained.run("task", "fix the bug", scenario="container", check=False, FAKE_DOCKER_RM_FAILS="1")
     job = contained.job()
     before = contained.docker_calls.read_text().count(f'"agy-{job["id"]}-1"')
@@ -513,3 +515,18 @@ def test_deleting_a_job_tries_its_leftover_container_again(contained):
     assert "Removed 1 job working copy" in contained.run("cleanup", job["id"], FAKE_DOCKER_RM_FAILS="1").stdout
     assert contained.docker_calls.read_text().count(f'"agy-{job["id"]}-1"') > before
     assert not Path(job["worktree"]).exists()
+
+
+def test_a_worker_stopped_during_the_export_still_removes_the_export_container(contained):
+    contained.run("task", "--background", "fix the bug", scenario="container", FAKE_DOCKER_EXPORT_SLEEPS="1")
+    job = contained.wait_for(lambda j: str(j.get("container") or "").endswith("-export"))
+    name = job["container"]
+    os.kill(job["pid"], signal.SIGTERM)  # what a cancel or session end sends the worker
+    name_removed = ["rm", "--force", name]
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        calls = [json.loads(line) for line in contained.docker_calls.read_text().splitlines()]
+        if name_removed in calls:
+            break
+        time.sleep(0.2)
+    assert name_removed in calls

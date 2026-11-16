@@ -200,6 +200,8 @@ def test_cancel_removes_a_running_container(image, scratch):
     assert name == f"agy-{job['id']}-1"
     # The name is recorded when the docker client starts, before Docker has
     # necessarily created the container.
+    running = None
+    deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
         running = subprocess.run(
             ["docker", "ps", "--quiet", "--filter", f"name=^{name}$"], capture_output=True, text=True
@@ -207,7 +209,7 @@ def test_cancel_removes_a_running_container(image, scratch):
         if running.stdout.strip():
             break
         time.sleep(0.5)
-    assert running.stdout.strip(), "the job's container is not running"
+    assert running is not None and running.stdout.strip(), "the job's container is not running"
     proc = _companion(scratch, repo, "cancel", job["id"])
     assert "Cancelled" in proc.stdout, proc.stdout + proc.stderr
     left = subprocess.run(
