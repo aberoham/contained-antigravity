@@ -26,7 +26,7 @@ NO_SANDBOX = "--no-os-sandbox"
         ("exited", ["failed to connect to the docker API at unix:///x/docker.sock"], "container"),
         ("exited", ["Unable to find image 'agy-sandbox:experiment' locally"], "container"),
         ("timeout", ["job exceeded its time limit"], "timeout"),
-        ("stall", ["no agy event for 330 s"], "stall"),
+        ("stall", ["no agy progress for 330 s"], "stall"),
         ("exited", ["agy exited with code 3 and no result"], "agy-failed"),
         ("exited", [], "agy-failed"),
     ],

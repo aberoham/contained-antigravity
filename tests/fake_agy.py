@@ -296,6 +296,7 @@ def main() -> int:
             with open(log_file, "w") as log:
                 if not resuming_after_stall:
                     log.write("I startup noise\n" * 400)
+                    log.write(os.environ.get("FAKE_AGY_FIRST_RUN_LOG", ""))
                 log.write(
                     "Run: attempt 1 failed (request failed: stream idle timeout (5m0s): context deadline exceeded)\n"
                 )

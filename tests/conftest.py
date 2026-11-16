@@ -100,6 +100,11 @@ class Companion:
         state = Path(self.env["AGY_COMPANION_STATE_DIR"])
         return [json.loads(p.read_text()) for p in state.glob("*/jobs/*/job.json")]
 
+    def job_dir(self, job_id: str) -> Path:
+        state = Path(self.env["AGY_COMPANION_STATE_DIR"])
+        (path,) = state.glob(f"*/jobs/{job_id}")
+        return path
+
     def job(self) -> dict:
         jobs = self.jobs()
         assert len(jobs) == 1, jobs

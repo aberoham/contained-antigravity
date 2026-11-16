@@ -93,10 +93,8 @@ def run_turn(
 ) -> TurnOutcome:
     """Run one agy turn and follow it. on_stop runs after agy's process group
     is stopped, for whatever the process group does not cover (a container)."""
-    # agy starts its --log-file afresh on every run, so an offset into the
-    # previous run's log would skip this run's lines. Keep that log aside and
-    # read this run's from the start.
-    _set_aside(log_path)
+    # agy starts its --log-file afresh on every run, so this run's lines are
+    # read from the start. The caller sets an earlier run's log aside first.
     log_offset = 0
     with open(stderr_path, "ab") as stderr:
         proc = subprocess.Popen(
@@ -181,7 +179,7 @@ def _follow(
                 return TurnOutcome("timeout", "job exceeded its time limit", result)
             limit = tool_stall_seconds if active_tools else stall_seconds
             if now - last_event > limit:
-                return TurnOutcome("stall", f"no agy event for {int(limit)} s", result)
+                return TurnOutcome("stall", f"no agy progress for {int(limit)} s", result)
             chunk, log_offset = _read_log_chunk(log_path, log_offset)
             if chunk and log_outcome is None:
                 # The previous read's tail is searched again, so a line split
@@ -197,6 +195,10 @@ def _follow(
                 # already written to stdout is never thrown away, or after a
                 # short wait if agy keeps emitting events without a result.
                 return log_outcome
+    if result is None and log_outcome is None:
+        # agy can write its last log line and close stdout between two polls.
+        chunk, log_offset = _read_log_chunk(log_path, log_offset)
+        log_outcome = _log_outcome(log_tail + chunk)
     if result is None and log_outcome is not None:
         return log_outcome
     # stdout is closed; agy should exit now, but keep enforcing the deadline.
@@ -246,24 +248,62 @@ def _open_regular(path: str | Path) -> int | None:
 
 
 def _read_log_chunk(log_path: Path, offset: int) -> tuple[str, int]:
-    """New text in agy's log since offset, and the new offset."""
+    """New text in agy's log since offset, and the new offset.
+
+    A log shorter than offset was started afresh, so it is read from the start.
+    """
     fd = _open_regular(log_path)
     if fd is None:
         return "", offset
     with os.fdopen(fd, "rb") as log:
+        if os.fstat(log.fileno()).st_size < offset:
+            offset = 0
         log.seek(offset)
         chunk = log.read().decode("utf-8", errors="replace")
         return chunk, log.tell()
 
 
-def _set_aside(log_path: Path) -> None:
-    """Rename a previous run's log to agy.log.1, agy.log.2, ..."""
-    if _file_size(log_path) == 0:
+def _set_aside(log_path: Path) -> Path | None:
+    """Move an earlier run's log to the first free agy.log.N and return where it went.
+
+    The next run's log is read from the start, so a stall line left in place
+    would be seen again as a new stall. A link, a special file or an empty
+    log is removed rather than kept. An existing name is never overwritten,
+    whatever agy left in the directory.
+    """
+    try:
+        try:
+            info = log_path.lstat()
+        except FileNotFoundError:
+            return None
+        if not stat.S_ISREG(info.st_mode) or info.st_size == 0:
+            log_path.unlink()
+            return None
+        n = 1
+        while True:
+            target = log_path.with_name(f"{log_path.name}.{n}")
+            try:
+                os.link(log_path, target, follow_symlinks=False)
+            except FileExistsError:
+                n += 1
+                continue
+            log_path.unlink()
+            return target
+    except OSError as exc:
+        raise RuntimeError(f"could not set aside agy's previous log {log_path}: {exc}") from exc
+
+
+def _clear_logs(log_path: Path) -> None:
+    """Remove agy's log and every set-aside copy, so a job keeps only its last round's logs."""
+    pattern = re.compile(re.escape(log_path.name) + r"\.\d+")
+    try:
+        for path in log_path.parent.iterdir():
+            if path.name == log_path.name or pattern.fullmatch(path.name):
+                path.unlink(missing_ok=True)
+    except FileNotFoundError:
         return
-    n = 1
-    while log_path.with_name(f"{log_path.name}.{n}").exists():
-        n += 1
-    log_path.rename(log_path.with_name(f"{log_path.name}.{n}"))
+    except OSError as exc:
+        raise RuntimeError(f"could not remove agy's earlier logs beside {log_path}: {exc}") from exc
 
 
 def _file_size(path: Path) -> int:
@@ -287,6 +327,7 @@ class JobRunner:
         self.step_usage: dict[str, int] = {}
         self.stderr_path = self.dir / "agy.stderr.txt"
         self.stderr_start = 0
+        self.round_logs: list[Path] = []
         self._last_write = 0.0
 
     # Event handling -------------------------------------------------------
@@ -432,11 +473,17 @@ class JobRunner:
         if self.job.get("isolation") == "container":
             container.seed_home(self.dir)  # a fresh home for this round, from the sign-in
         # stderr is appended to across rounds; earlier rounds' errors are not this round's.
-        # The log holds only the last run (see run_turn).
         self.stderr_start = _file_size(self.stderr_path)
+        # agy starts its log afresh on every run. Each run's log is set aside
+        # before the next run, and only this round's are kept.
+        _clear_logs(self.log_path)
+        self.round_logs = []
 
         while True:
             self.step_usage = {}
+            earlier_log = _set_aside(self.log_path)
+            if earlier_log is not None:
+                self.round_logs.append(earlier_log)
             outcome = run_turn(
                 self._command(model, conversation),
                 cwd=Path(self.job["worktree"]),
@@ -514,7 +561,7 @@ class JobRunner:
         elif result.get("status") != "SUCCESS":
             error = result.get("error") or f"agy finished with status {result.get('status')}"
         if error is not None:
-            log_text, _ = _read_log_chunk(self.log_path, 0)
+            log_text = "\n".join(_read_log_chunk(path, 0)[0] for path in [*self.round_logs, self.log_path])
             failure_class = failure.classify(outcome.kind, stderr_tail, log_text, str(result.get("error") or ""))
             error = failure.ADVICE.get(failure_class, error)
 

@@ -151,13 +151,12 @@ def test_stall_retries_are_capped(companion):
     job = companion.job()
     assert job["status"] == "failed"
     assert len(job["rounds"][0]["stalls"]) == 2
-    assert "no agy event" in proc.stdout
+    assert "no agy progress" in proc.stdout
     models = [call["argv"][call["argv"].index("--model") + 1] for call in companion.agy_calls()]
     assert models == ["gemini-4-argon-high"] * 3
 
 
 def test_a_stall_in_a_restarted_shorter_log_is_still_seen(companion):
-    started = time.monotonic()
     companion.run(
         "task",
         NO_SANDBOX,
@@ -168,12 +167,39 @@ def test_a_stall_in_a_restarted_shorter_log_is_still_seen(companion):
         "do it",
         scenario="stall-log-truncate",
         FAKE_AGY_STALL_RESUMES="1",
+        FAKE_AGY_FIRST_RUN_LOG="Error 403: GEMINI_ENTERPRISE_LICENSE_NOT_VALID\n",
         check=False,
     )
     job = companion.job()
     assert job["status"] == "failed"
-    assert len(job["rounds"][0]["stalls"]) == 2
-    assert time.monotonic() - started < 100  # only the log can tell; the event timer is 600 s
+    stalls = job["rounds"][0]["stalls"]
+    assert len(stalls) == 2
+    # The event timer is 600 s, so only the log can have reported these stalls.
+    assert all(s["reason"].startswith("agy log:") for s in stalls)
+    # Only the first run logged the licence error; the round's class still sees it.
+    assert job["failure"] == "licence"
+    assert sorted(p.name for p in companion.job_dir(job["id"]).glob("agy.log*")) == [
+        "agy.log",
+        "agy.log.1",
+        "agy.log.2",
+    ]
+
+
+def test_a_new_round_keeps_only_its_own_logs(companion, tmp_path):
+    options = (NO_SANDBOX, "--model", "high", "--stall-seconds", "600")
+    stalls = {"scenario": "stall-log-truncate", "FAKE_AGY_STALL_RESUMES": "1", "check": False}
+    companion.run("task", *options, "do it", FAKE_AGY_FIRST_RUN_LOG="round one\n", **stalls)
+    job = companion.job()
+    results = tmp_path / "results.txt"
+    results.write_text("output is here\n")
+    # A resume is a new round in the same job directory.
+    companion.run("resume", job["id"], str(results), *options, FAKE_AGY_FIRST_RUN_LOG="round two\n", **stalls)
+    job = companion.job()
+    assert len(job["rounds"]) == 2
+    logs = sorted(companion.job_dir(job["id"]).glob("agy.log*"))
+    assert [p.name for p in logs] == ["agy.log", "agy.log.1", "agy.log.2"]
+    text = "".join(p.read_text() for p in logs)
+    assert "round two" in text and "round one" not in text
 
 
 def test_agy_retry_errors_do_not_hold_off_the_stall_timer(companion):
@@ -191,7 +217,9 @@ def test_agy_retry_errors_do_not_hold_off_the_stall_timer(companion):
     )
     job = companion.job()
     assert job["status"] == "failed"
-    assert len(job["rounds"][0]["stalls"]) == 2
+    stalls = job["rounds"][0]["stalls"]
+    assert len(stalls) == 2
+    assert all(s["reason"].startswith("no agy progress") for s in stalls)
 
 
 def test_cancel_stops_worker_and_agy(companion, tmp_path):
@@ -458,6 +486,70 @@ def test_runner_enforces_the_deadline_after_stdout_closes(tmp_path):
     )
     assert time.monotonic() - started < 15
     assert outcome.kind == "exited"
+
+
+def test_runner_reads_a_stall_logged_just_before_stdout_closes(tmp_path):
+    from agylib.runner import run_turn
+
+    log = tmp_path / "agy.log"
+    script = tmp_path / "logs_then_exits.py"
+    script.write_text(
+        "import sys\nsys.stdin.read()\n"
+        f"open({str(log)!r}, 'w').write('stream idle timeout (5m0s): context deadline exceeded\\n')\n"
+    )
+    outcome = run_turn(
+        [sys.executable, str(script)],
+        cwd=tmp_path,
+        message="hi",
+        events_path=tmp_path / "e",
+        log_path=log,
+        stderr_path=tmp_path / "s",
+        stall_seconds=30,
+        deadline=time.monotonic() + 30,
+        on_event=lambda e: None,
+    )
+    assert outcome.kind == "stall"
+    assert outcome.detail.startswith("agy log:")
+
+
+def test_set_aside_never_overwrites_and_drops_what_is_not_a_log(tmp_path):
+    from agylib.runner import _set_aside
+
+    log = tmp_path / "agy.log"
+    log.write_text("first run\n")
+    (tmp_path / "agy.log.1").symlink_to(tmp_path / "missing")  # a dangling link agy could leave
+    assert _set_aside(log) == tmp_path / "agy.log.2"
+    assert not log.exists() and (tmp_path / "agy.log.2").read_text() == "first run\n"
+    assert (tmp_path / "agy.log.1").is_symlink()
+
+    os.mkfifo(log)
+    assert _set_aside(log) is None and not os.path.lexists(log)
+    log.symlink_to(tmp_path / "agy.log.2")
+    assert _set_aside(log) is None and not os.path.lexists(log)
+    assert (tmp_path / "agy.log.2").read_text() == "first run\n"
+    log.write_text("")
+    assert _set_aside(log) is None and not log.exists()
+    assert _set_aside(log) is None
+
+
+def test_clear_logs_removes_only_agy_logs(tmp_path):
+    from agylib.runner import _clear_logs
+
+    for name in ("agy.log", "agy.log.1", "agy.log.12", "agy.log.txt", "agy.stderr.txt"):
+        (tmp_path / name).write_text("x")
+    _clear_logs(tmp_path / "agy.log")
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["agy.log.txt", "agy.stderr.txt"]
+    _clear_logs(tmp_path / "missing-dir" / "agy.log")
+
+
+def test_log_reader_restarts_a_log_that_shrank(tmp_path):
+    from agylib.runner import _read_log_chunk
+
+    log = tmp_path / "agy.log"
+    log.write_text("a long first run\n")
+    _, offset = _read_log_chunk(log, 0)
+    log.write_text("new\n")
+    assert _read_log_chunk(log, offset) == ("new\n", 4)
 
 
 def test_stalled_attempt_keeps_its_step_usage(companion):
