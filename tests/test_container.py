@@ -396,3 +396,40 @@ def test_a_container_that_survives_removal_fails_the_job(contained):
     name = f"agy-{job['id']}-1"
     assert f"Docker did not remove the job's container {name}" in job["error"]
     assert f"docker rm --force {name}" in job["error"]
+    assert job["failure"] == "container"
+    assert job["container"] == name  # kept, so a cancel can try again
+
+
+def test_an_export_container_that_survives_removal_is_reported_beside_agys_error(contained):
+    contained.run(
+        "task", "--isolation", "container", "do it", scenario="licence", check=False, FAKE_DOCKER_RM_FAILS="-export"
+    )
+    job = contained.job()
+    assert job["status"] == "failed"
+    name = f"agy-{job['id']}-1-export"
+    assert "licence" in job["error"]
+    assert f"Also, could not export agy's changes: Docker did not remove the job's container {name}" in job["error"]
+    assert job["container"] == name
+
+
+def test_remove_trusts_a_successful_rm_and_asks_docker_otherwise(monkeypatch):
+    import subprocess
+
+    from agylib import container
+
+    def answers(rm, ps):
+        def fake(*args, timeout):
+            reply = rm if args[0] == "rm" else ps
+            return None if reply is None else subprocess.CompletedProcess(args, reply[0], reply[1], "")
+
+        return fake
+
+    cases = [
+        ((0, ""), None, True),  # removed; a slow `docker ps` must not undo that
+        (None, (0, ""), True),  # rm timed out, but the container is gone
+        ((1, ""), (0, "0123456789ab\n"), False),  # still listed
+        ((1, ""), None, False),  # Docker could not say
+    ]
+    for rm, ps, gone in cases:
+        monkeypatch.setattr(container, "_docker", answers(rm, ps))
+        assert container.remove("agy-x-1") is gone, (rm, ps)

@@ -298,14 +298,22 @@ def _clear_logs(log_dir: Path) -> None:
         raise RuntimeError(f"could not delete agy's earlier logs in {log_dir}: {exc}") from exc
 
 
+class ContainerNotRemoved(RuntimeError):
+    """Docker did not remove a job's container; name is the container's."""
+
+    def __init__(self, name: str):
+        super().__init__(
+            f"Docker did not remove the job's container {name}. "
+            f"Run `docker rm --force {name}`, then start or resume the job again."
+        )
+        self.name = name
+
+
 def _remove_container(name: str) -> None:
     """Remove a job's container, or stop the job: a container left running
     could still write into the job directory, and the next run needs its name."""
     if not container.remove(name):
-        raise RuntimeError(
-            f"Docker did not remove the job's container {name}. "
-            f"Run `docker rm --force {name}`, then start or resume the job again."
-        )
+        raise ContainerNotRemoved(name)
 
 
 def _file_size(path: Path) -> int:
@@ -330,6 +338,7 @@ class JobRunner:
         self.stderr_path = self.dir / "agy.stderr.txt"
         self.stderr_start = 0
         self.round_logs: list[Path] = []
+        self.leftover_container: str | None = None
         self._last_write = 0.0
 
     # Event handling -------------------------------------------------------
@@ -587,8 +596,13 @@ class JobRunner:
                 stored["changed_files"] = changes["name_status"]
                 stored["changed_paths"] = changes["paths"]
             except (gitctx.GitError, RuntimeError) as exc:
+                if isinstance(exc, ContainerNotRemoved):
+                    self.leftover_container = exc.name  # kept on the job, so a cancel can retry it
                 if error is None:
-                    error, failure_class = f"could not export agy's changes: {exc}", "agy-failed"
+                    failed_class = "container" if isinstance(exc, ContainerNotRemoved) else "agy-failed"
+                    error, failure_class = f"could not export agy's changes: {exc}", failed_class
+                else:
+                    error = f"{error}\n\nAlso, could not export agy's changes: {exc}"
 
         write_json(self.dir / "result.json", stored)
         if error is not None:
@@ -613,7 +627,7 @@ class JobRunner:
                     "failure": failure_class,
                     "pid": None,
                     "agy_pid": None,
-                    "container": None,
+                    "container": self.leftover_container,
                     "model": round_record["final_model"],
                     "completed_at": now_iso(),
                     "queued_commands": commands,

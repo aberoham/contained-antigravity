@@ -80,11 +80,17 @@ def main() -> int:
         else:
             print("sha256:fake")
         return 0
+    # FAKE_DOCKER_RM_FAILS names containers (by substring, or "1" for all)
+    # that survive `rm --force`, as one can when the daemon is in trouble.
+    stuck = os.environ.get("FAKE_DOCKER_RM_FAILS", "")
+    survives = bool(stuck) and (stuck == "1" or stuck in " ".join(argv))
     if argv[:1] == ["rm"]:
+        if survives:
+            sys.stderr.write("Error response from daemon: could not kill container\n")
+            return 1
         return 0
     if argv[:1] == ["ps"]:
-        # A container that survives `rm --force`, as one can when the daemon is in trouble.
-        if os.environ.get("FAKE_DOCKER_RM_FAILS"):
+        if survives:
             print("0123456789ab")
         return 0
     if argv[:1] == ["run"]:

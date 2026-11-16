@@ -59,12 +59,15 @@ def scratch():
     try:
         yield root
     finally:
-        # A failed test can leave a job running; stop it and its container first.
-        for job_file in (root / "state").glob("*/jobs/*/job.json"):
-            job = json.loads(job_file.read_text())
-            if job.get("status") in ACTIVE_STATUSES:
-                _companion(root, Path(job["repo_root"]), "cancel", job["id"])
-        shutil.rmtree(root, ignore_errors=True)
+        try:
+            # A failed test can leave a job running; stop it and its container first.
+            for job_file in (root / "state").glob("*/jobs/*/job.json"):
+                job = json.loads(job_file.read_text())
+                if job.get("status") in ACTIVE_STATUSES:
+                    proc = _companion(root, Path(job["repo_root"]), "cancel", job["id"])
+                    assert proc.returncode == 0, proc.stdout + proc.stderr
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
 
 
 def _job(scratch: Path) -> tuple[Path, dict]:

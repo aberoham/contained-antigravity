@@ -110,15 +110,25 @@ class Companion:
         """Cancel every job still active, so a failed test leaves no worker or agy running."""
         from agylib.state import ACTIVE_STATUSES
 
+        problems = []
         for job in self.jobs():
-            if job.get("status") in ACTIVE_STATUSES:
-                subprocess.run(
+            if job.get("status") not in ACTIVE_STATUSES:
+                continue
+            try:
+                proc = subprocess.run(
                     [sys.executable, str(COMPANION), "cancel", job["id"]],
                     cwd=job.get("repo_root") or self.repo,
                     env=self.env,
                     capture_output=True,
+                    text=True,
                     timeout=60,
                 )
+            except subprocess.TimeoutExpired:
+                problems.append(f"{job['id']}: cancel timed out")
+                continue
+            if proc.returncode != 0:
+                problems.append(f"{job['id']}: cancel failed: {proc.stderr.strip()}")
+        assert not problems, problems
 
     def job(self) -> dict:
         jobs = self.jobs()

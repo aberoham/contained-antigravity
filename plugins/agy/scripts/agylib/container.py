@@ -490,9 +490,12 @@ def remove(name: str, timeout: float = 30) -> bool:
     """Stop and remove the container, if it still exists, and say whether it is gone.
 
     Stopping the docker client does not stop the container, so this runs
-    after every turn. It returns False when Docker still lists the container
-    or cannot be asked.
+    after every turn. When the removal itself fails or times out, Docker is
+    asked whether the container still exists; False means it does, or that
+    Docker could not say.
     """
-    _docker("rm", "--force", name, timeout=timeout)
-    proc = _docker("ps", "--all", "--quiet", "--filter", f"name=^{name}$", timeout=timeout)
-    return bool(proc and proc.returncode == 0 and not proc.stdout.strip())
+    removed = _docker("rm", "--force", name, timeout=timeout)
+    if removed is not None and removed.returncode == 0:
+        return True
+    listed = _docker("ps", "--all", "--quiet", "--filter", f"name=^{name}$", timeout=timeout)
+    return bool(listed and listed.returncode == 0 and not listed.stdout.strip())
