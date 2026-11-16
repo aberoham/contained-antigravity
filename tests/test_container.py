@@ -87,7 +87,8 @@ def test_review_runs_in_a_container_with_only_the_job_paths_mounted(contained, r
         f"{job['plugin_root']}:{job['plugin_root']}:ro",
     ]
     assert not any(str(repo) in v or str(signin) in v for v in volumes)
-    assert run[run.index("--log-file") + 1] == str(job_mount / "agy.log")
+    log_file = Path(run[run.index("--log-file") + 1])
+    assert log_file.parent == job_mount and log_file.name.startswith("agy-1-")
     assert "--init" in options and f"--env=HOME={job_mount / 'home'}" in options
     seeded = job_mount / "home" / ".gemini" / "antigravity-cli"
     assert (seeded / "antigravity-oauth-token").read_text() == '{"token": "fake"}'

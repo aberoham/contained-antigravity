@@ -13,6 +13,7 @@ import json
 import os
 import queue
 import re
+import secrets
 import signal
 import stat
 import subprocess
@@ -93,7 +94,9 @@ def run_turn(
 ) -> TurnOutcome:
     """Run one agy turn and follow it. on_stop runs after agy's process group
     is stopped, for whatever the process group does not cover (a container)."""
-    log_offset = log_path.stat().st_size if log_path.exists() else 0
+    # agy starts its --log-file afresh on every run, so this run's lines are
+    # read from the start. The caller sets an earlier run's log aside first.
+    log_offset = 0
     with open(stderr_path, "ab") as stderr:
         proc = subprocess.Popen(
             command,
@@ -152,17 +155,21 @@ def _follow(
                 break
             now = time.monotonic()
             if line.strip():
-                last_event = now
                 events.write(line if line.endswith("\n") else line + "\n")
                 events.flush()
                 try:
                     event = json.loads(line)
                 except ValueError:
+                    last_event = now
                     continue
+                step = event.get("step_update") or {}
+                # agy reports each of its own failed retries of a stalled model
+                # as an error_message step; that is not progress.
+                if step.get("step_type") != "error_message":
+                    last_event = now
                 on_event(event)
                 if event.get("event") == "result":
                     result = event.get("result") or {}
-                step = event.get("step_update") or {}
                 if step.get("step_type") == "tool":
                     index = int(step.get("step_index") or 0)
                     if step.get("state") == "ACTIVE":
@@ -173,7 +180,7 @@ def _follow(
                 return TurnOutcome("timeout", "job exceeded its time limit", result)
             limit = tool_stall_seconds if active_tools else stall_seconds
             if now - last_event > limit:
-                return TurnOutcome("stall", f"no agy event for {int(limit)} s", result)
+                return TurnOutcome("stall", f"no agy progress for {int(limit)} s", result)
             chunk, log_offset = _read_log_chunk(log_path, log_offset)
             if chunk and log_outcome is None:
                 # The previous read's tail is searched again, so a line split
@@ -189,6 +196,10 @@ def _follow(
                 # already written to stdout is never thrown away, or after a
                 # short wait if agy keeps emitting events without a result.
                 return log_outcome
+    if result is None and log_outcome is None:
+        # agy can write its last log line and close stdout between two polls.
+        chunk, log_offset = _read_log_chunk(log_path, log_offset)
+        log_outcome = _log_outcome(log_tail + chunk)
     if result is None and log_outcome is not None:
         return log_outcome
     # stdout is closed; agy should exit now, but keep enforcing the deadline.
@@ -238,14 +249,51 @@ def _open_regular(path: str | Path) -> int | None:
 
 
 def _read_log_chunk(log_path: Path, offset: int) -> tuple[str, int]:
-    """New text in agy's log since offset, and the new offset."""
+    """New text in agy's log since offset, and the new offset.
+
+    A log shorter than offset was started afresh, so it is read from the start.
+    """
     fd = _open_regular(log_path)
     if fd is None:
         return "", offset
     with os.fdopen(fd, "rb") as log:
+        if os.fstat(log.fileno()).st_size < offset:
+            offset = 0
         log.seek(offset)
         chunk = log.read().decode("utf-8", errors="replace")
         return chunk, log.tell()
+
+
+# agy's log for each run, and the names earlier versions of the worker used.
+LOG_NAME = re.compile(r"agy-\d+-[0-9a-f]+\.log|agy\.log(\.\d+)?")
+
+
+def _new_log_path(log_dir: Path, turn: int) -> Path:
+    """A log name that no run in log_dir has used, for turn (1, 2, ...) of a round.
+
+    agy starts its --log-file afresh, so each run is read from the start of
+    its own file. A name is never reused: a Docker virtual machine on macOS
+    briefly keeps serving a file the host has renamed or deleted (under two
+    seconds under Colima on 16 November 2026), and a container that opened
+    the old name in that time would write into the old file, unseen by the
+    host.
+    """
+    return log_dir / f"agy-{turn}-{secrets.token_hex(4)}.log"
+
+
+def _clear_logs(log_dir: Path) -> None:
+    """Delete earlier rounds' logs, so a job keeps only the last round's.
+
+    Deleting on the host is safe only because no later run reuses a name.
+    """
+    try:
+        for path in log_dir.iterdir():
+            if LOG_NAME.fullmatch(path.name):
+                path.unlink(missing_ok=True)
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise RuntimeError(f"could not delete agy's earlier logs in {log_dir}: {exc}") from exc
 
 
 def _file_size(path: Path) -> int:
@@ -268,8 +316,8 @@ class JobRunner:
         self.denied_commands: list[str] = []
         self.step_usage: dict[str, int] = {}
         self.stderr_path = self.dir / "agy.stderr.txt"
-        self.log_start = 0
         self.stderr_start = 0
+        self.round_logs: list[Path] = []
         self._last_write = 0.0
 
     # Event handling -------------------------------------------------------
@@ -342,11 +390,11 @@ class JobRunner:
         )
 
     @property
-    def log_path(self) -> Path:
-        """agy's log. A container job writes it into the one job subdirectory the container may see."""
+    def log_dir(self) -> Path:
+        """Where agy's logs go. A container job writes them into the one job subdirectory the container may see."""
         if self.job.get("isolation") == "container":
-            return container.job_mount(self.dir) / "agy.log"
-        return self.dir / "agy.log"
+            return container.job_mount(self.dir)
+        return self.dir
 
     def _plan_anchor(self) -> tuple[Path, Path]:
         """(trusted directory, brain directory relative to it) for plan artifacts.
@@ -369,14 +417,14 @@ class JobRunner:
         if name:
             container.remove(name)
 
-    def _command(self, model: str, conversation: str | None) -> list[str]:
+    def _command(self, model: str, conversation: str | None, log_path: Path) -> list[str]:
         binary = Path(self.job["agy_bin"])
         schema = self.job.get("json_schema")
         command = agybin.build_command(
             binary,
             model=model,
             mode=self.job["mode"],
-            log_file=self.log_path,
+            log_file=log_path,
             conversation_id=conversation,
             json_schema=Path(schema) if schema else None,
         )
@@ -414,18 +462,22 @@ class JobRunner:
         usage_total: dict[str, int] = {}
         if self.job.get("isolation") == "container":
             container.seed_home(self.dir)  # a fresh home for this round, from the sign-in
-        # Both files are appended to across rounds; earlier rounds' errors are not this round's.
-        self.log_start = _file_size(self.log_path)
+        # stderr is appended to across rounds; earlier rounds' errors are not this round's.
         self.stderr_start = _file_size(self.stderr_path)
+        # Each run writes its own log; only this round's are kept.
+        _clear_logs(self.log_dir)
+        self.round_logs = []
 
         while True:
             self.step_usage = {}
+            log_path = _new_log_path(self.log_dir, len(self.round_logs) + 1)
+            self.round_logs.append(log_path)
             outcome = run_turn(
-                self._command(model, conversation),
+                self._command(model, conversation, log_path),
                 cwd=Path(self.job["worktree"]),
                 message=message,
                 events_path=self.dir / "events.ndjson",
-                log_path=self.log_path,
+                log_path=log_path,
                 stderr_path=self.stderr_path,
                 stall_seconds=stall_seconds,
                 deadline=deadline,
@@ -497,7 +549,7 @@ class JobRunner:
         elif result.get("status") != "SUCCESS":
             error = result.get("error") or f"agy finished with status {result.get('status')}"
         if error is not None:
-            log_text, _ = _read_log_chunk(self.log_path, self.log_start)
+            log_text = "\n".join(_read_log_chunk(path, 0)[0] for path in self.round_logs)
             failure_class = failure.classify(outcome.kind, stderr_tail, log_text, str(result.get("error") or ""))
             error = failure.ADVICE.get(failure_class, error)
 

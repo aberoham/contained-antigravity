@@ -141,6 +141,31 @@ def test_task_in_a_real_container_reaches_only_the_working_copy(image, scratch):
     assert not filter_marker.exists()
 
 
+def test_a_stall_logged_after_a_resume_is_seen_in_a_real_container(image, scratch):
+    # Each resumed run's log must reach the host. The worker's stop sequence
+    # usually outlasts the virtual machine's brief cache of a moved file, so
+    # this also passes with a reused log name; it guards the container path.
+    repo = scratch / "repo"
+    repo.mkdir()
+    git(repo, "init", "-q", "-b", "main")
+    (repo / "stats.py").write_text("x\n")
+    git(repo, "add", ".")
+    git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init")
+    proc = _companion(
+        scratch, repo, "task", "--isolation", "container", "--stall-seconds", "600", "--read-only", "probe-log-stall"
+    )
+    _, job = _job(scratch)
+    try:
+        assert job["status"] == "failed", proc.stdout + proc.stderr
+        stalls = job["rounds"][0]["stalls"]
+        assert len(stalls) == 2
+        # The event timer is 600 s, so only each run's log can have reported its stall.
+        assert all(s["reason"].startswith("agy log:") for s in stalls)
+    finally:
+        if job["status"] not in ("failed", "completed", "cancelled"):
+            _companion(scratch, repo, "cancel", job["id"])
+
+
 def test_cancel_removes_a_running_container(image, scratch):
     repo = scratch / "repo"
     repo.mkdir()
