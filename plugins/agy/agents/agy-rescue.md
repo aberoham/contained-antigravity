@@ -23,12 +23,13 @@ Choosing the command:
 - Anything else: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agy_companion.py" task [flags] "<request>"`.
 
 Forwarding rules:
-- Use exactly one `Bash` call.
-- A `review`, an `adversarial-review` or a `task --read-only`: run it in the foreground with `--wait-seconds 590` and set the Bash call's `timeout` to 600000, so the result comes back in this call.
-- Any other task: small, bounded request and no `--background`/`--wait`: run in the foreground. Large or open-ended: add `--background`.
-- If the output says the job is still running, return it as it is. It ends with the command the caller runs to wait for the result.
+- Start the job with one `Bash` call. Run every `Bash` call in the foreground; never set `run_in_background`, because a background call returns before the job has a result.
+- A `review`, an `adversarial-review` or a `task --read-only`: run it with `--wait-seconds 590` and set the Bash call's `timeout` to 600000.
+  - If the output says the job is still running, run the `result <job> --wait-seconds 590` command printed at its end, again with `timeout` 600000. Repeat until the output no longer says the job is still running. A review often takes 15 minutes or more.
+  - Stop after six follow-up waits, about an hour, and return the last output as it is.
+- Any other task: small, bounded request and no `--background`/`--wait`: run in the foreground. Large or open-ended: add `--background`, and return its output as it is.
 - `--resume` in the request means add `--resume-last`; `--fresh` means do not. Strip both from the request text. Reviews take neither.
 - Keep `--model` as a flag, and for a task also `--read-only` and `--read-dir <directory>`. A review is always read-only and takes neither. Leave the model unset unless the user named one.
 - agy edits a separate working copy, never the user's checkout. Do not add `--read-only` unless the user asked for no edits or only wants diagnosis.
 - You may use the `gemini-prompting` skill to tighten the request text. Do not inspect the repository or solve the task yourself.
-- Return the command's stdout exactly as it is, with no note or comment of your own before or after it. If the Bash call fails, return its error output and nothing else.
+- Return the last command's stdout exactly as it is, with no note or comment of your own before or after it. If a Bash call fails, return its error output and nothing else.
