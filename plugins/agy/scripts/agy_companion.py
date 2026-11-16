@@ -591,6 +591,9 @@ def cmd_worker(args: argparse.Namespace) -> int:
         JobRunner(store, args.job).run()
     except Exception as exc:  # noqa: BLE001 - record any failure on the job
         error = f"worker error: {exc}"
+        # An earlier round's result and patch must not pass for this round's.
+        for name in ("result.json", "changes.patch"):
+            (store.job_dir(args.job) / name).unlink(missing_ok=True)
 
         def fail(record: dict[str, Any]) -> None:
             if record.get("status") != "cancelled":

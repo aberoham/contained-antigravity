@@ -239,6 +239,10 @@ def drop_working_copy(record: dict[str, Any], job_dir: Path) -> bool:
     from . import container, gitctx
 
     removed = False
+    if record.get("container"):
+        # Its removal was not confirmed; try once more, so it cannot keep
+        # writing into a working copy about to go. The job goes either way.
+        container.remove(str(record["container"]), timeout=10)
     worktree = Path(record.get("worktree") or "")
     if record.get("worktree") and worktree.exists():
         try:

@@ -433,3 +433,47 @@ def test_remove_trusts_a_successful_rm_and_asks_docker_otherwise(monkeypatch):
     for rm, ps, gone in cases:
         monkeypatch.setattr(container, "_docker", answers(rm, ps))
         assert container.remove("agy-x-1") is gone, (rm, ps)
+
+
+def test_a_container_left_by_one_round_is_removed_before_the_next(contained):
+    contained.run("task", "fix the bug", scenario="container", check=False, FAKE_DOCKER_RM_FAILS="1")
+    first = contained.job()
+    left = f"agy-{first['id']}-1"
+    assert first["status"] == "failed" and first["container"] == left
+    agy_runs = len(contained.agy_calls())
+
+    # While Docker still cannot remove it, the next round stops before agy starts.
+    contained.run("task", "--resume-last", "carry on", scenario="container", check=False, FAKE_DOCKER_RM_FAILS=left)
+    job = contained.job()
+    assert job["status"] == "failed" and job["failure"] == "container"
+    assert f"Docker did not remove the job's container {left}" in job["error"]
+    assert len(contained.agy_calls()) == agy_runs
+
+    # Once it can, the round removes it first and runs.
+    contained.run("task", "--resume-last", "carry on", scenario="container")
+    job = contained.job()
+    assert job["status"] == "completed" and job["container"] is None
+    calls = [json.loads(line) for line in contained.docker_calls.read_text().splitlines()]
+    assert calls.count(["rm", "--force", left]) >= 3
+
+
+def test_a_round_that_fails_in_cleanup_hides_the_earlier_patch(contained, repo):
+    contained.run("task", "fix the bug", scenario="container")
+    job = contained.job()
+    assert "Applied" not in contained.run("apply", job["id"], "--check").stdout  # a clean check, not an apply
+    contained.run("task", "--resume-last", "carry on", scenario="container", check=False, FAKE_DOCKER_RM_FAILS="-2")
+    job = contained.job()
+    assert job["status"] == "failed" and "Docker did not remove" in job["error"]
+    result = contained.run("result", job["id"], check=False)
+    assert "Docker did not remove" in result.stdout + result.stderr
+    assert "changed no files" in contained.run("apply", job["id"], "--check").stdout
+
+
+def test_deleting_a_job_tries_its_leftover_container_again(contained):
+    contained.run("task", "fix the bug", scenario="container", check=False, FAKE_DOCKER_RM_FAILS="1")
+    job = contained.job()
+    before = contained.docker_calls.read_text().count(f'"agy-{job["id"]}-1"')
+    contained.run("cleanup", job["id"])
+    calls = [json.loads(line) for line in contained.docker_calls.read_text().splitlines()]
+    assert ["rm", "--force", f"agy-{job['id']}-1"] in calls
+    assert contained.docker_calls.read_text().count(f'"agy-{job["id"]}-1"') > before

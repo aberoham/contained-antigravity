@@ -481,6 +481,11 @@ class JobRunner:
         started = time.monotonic()
         env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
         usage_total: dict[str, int] = {}
+        leftover = self.job.get("container")
+        if leftover:
+            # An earlier round's container whose removal was not confirmed
+            # could still write into the working copy this round uses.
+            _remove_container(leftover)
         if self.job.get("isolation") == "container":
             container.seed_home(self.dir)  # a fresh home for this round, from the sign-in
         # stderr is appended to across rounds; earlier rounds' errors are not this round's.
@@ -597,7 +602,8 @@ class JobRunner:
                 stored["changed_paths"] = changes["paths"]
             except (gitctx.GitError, RuntimeError) as exc:
                 if isinstance(exc, ContainerNotRemoved):
-                    self.leftover_container = exc.name  # kept on the job, so a cancel can retry it
+                    # Kept on the job: the next round, or deleting the job, tries again.
+                    self.leftover_container = exc.name
                 if error is None:
                     failed_class = "container" if isinstance(exc, ContainerNotRemoved) else "agy-failed"
                     error, failure_class = f"could not export agy's changes: {exc}", failed_class

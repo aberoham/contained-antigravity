@@ -239,7 +239,7 @@ yuting0624/antigravity-for-claude-code.
 | 14   | `model`       | agy did not recognise the model                           |
 | 15   | `licence`     | Google reclaimed the Gemini Enterprise seat               |
 | 16   | `stall`       | Still stalled after two resumes on the same model         |
-| 17   | `container`   | Docker is not running, or the image is missing            |
+| 17   | `container`   | Docker is not running, the image is missing, or Docker did not remove a job's container |
 
 The class comes from agy's stderr, agy's own log and its error text, never
 from the model's reply. The quota class matches Google's `RESOURCE_EXHAUSTED`

@@ -59,15 +59,21 @@ def scratch():
     try:
         yield root
     finally:
+        problems = []
         try:
-            # A failed test can leave a job running; stop it and its container first.
+            # A failed test can leave a job running, or a container whose
+            # removal was not confirmed; stop both before deleting the state.
             for job_file in (root / "state").glob("*/jobs/*/job.json"):
                 job = json.loads(job_file.read_text())
                 if job.get("status") in ACTIVE_STATUSES:
                     proc = _companion(root, Path(job["repo_root"]), "cancel", job["id"])
-                    assert proc.returncode == 0, proc.stdout + proc.stderr
+                    if proc.returncode != 0:
+                        problems.append(f"{job['id']}: cancel failed: {proc.stdout}{proc.stderr}")
+                if job.get("container"):
+                    subprocess.run(["docker", "rm", "--force", job["container"]], capture_output=True, timeout=60)
         finally:
             shutil.rmtree(root, ignore_errors=True)
+        assert not problems, problems
 
 
 def _job(scratch: Path) -> tuple[Path, dict]:
@@ -188,7 +194,15 @@ def test_cancel_removes_a_running_container(image, scratch):
         time.sleep(0.5)
     name = job["container"]
     assert name == f"agy-{job['id']}-1"
-    running = subprocess.run(["docker", "ps", "--quiet", "--filter", f"name=^{name}$"], capture_output=True, text=True)
+    # The name is recorded when the docker client starts, before Docker has
+    # necessarily created the container.
+    while time.monotonic() < deadline:
+        running = subprocess.run(
+            ["docker", "ps", "--quiet", "--filter", f"name=^{name}$"], capture_output=True, text=True
+        )
+        if running.stdout.strip():
+            break
+        time.sleep(0.5)
     assert running.stdout.strip(), "the job's container is not running"
     proc = _companion(scratch, repo, "cancel", job["id"])
     assert "Cancelled" in proc.stdout, proc.stdout + proc.stderr
