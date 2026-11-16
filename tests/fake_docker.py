@@ -94,6 +94,9 @@ def main() -> int:
             print("0123456789ab")
         return 0
     if argv[:1] == ["run"]:
+        if "_export" in argv and os.environ.get("FAKE_DOCKER_EXPORT_FAILS"):
+            sys.stderr.write("export: no space left on device\n")
+            return 1
         run(argv[1:])
     sys.stderr.write(f"fake docker: unsupported command {argv}\n")
     return 2

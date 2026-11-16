@@ -398,6 +398,26 @@ def test_a_container_that_survives_removal_fails_the_job(contained):
     assert f"docker rm --force {name}" in job["error"]
     assert job["failure"] == "container"
     assert job["container"] == name  # kept, so the next round or the job's deletion tries again
+    assert job["rounds"][0]["usage"]["total_tokens"] == 120  # the turn's usage is still counted
+
+
+def test_an_export_that_fails_keeps_its_own_error_when_its_container_survives(contained):
+    contained.run(
+        "task",
+        "--isolation",
+        "container",
+        "fix the bug",
+        scenario="container",
+        check=False,
+        FAKE_DOCKER_EXPORT_FAILS="1",
+        FAKE_DOCKER_RM_FAILS="-export",
+    )
+    job = contained.job()
+    name = f"agy-{job['id']}-1-export"
+    assert job["status"] == "failed" and job["failure"] == "agy-failed"
+    assert "the export container failed: export: no space left on device" in job["error"]
+    assert f"Also, Docker did not remove the job's container {name}" in job["error"]
+    assert job["container"] == name
 
 
 def test_a_turn_container_that_survives_removal_keeps_the_turns_own_failure(contained):
@@ -476,8 +496,8 @@ def test_a_round_that_fails_in_cleanup_hides_the_earlier_patch(contained, repo):
     contained.run("task", "fix the bug", scenario="container")
     job = contained.job()
     assert "apply cleanly" in contained.run("apply", job["id"], "--check").stdout
-    # "-2" matches the second round's container, agy-<id>-2.
-    contained.run("task", "--resume-last", "carry on", scenario="container", check=False, FAKE_DOCKER_RM_FAILS="-2")
+    second = f"agy-{job['id']}-2"
+    contained.run("task", "--resume-last", "carry on", scenario="container", check=False, FAKE_DOCKER_RM_FAILS=second)
     job = contained.job()
     assert job["status"] == "failed" and "Docker did not remove" in job["error"]
     result = contained.run("result", job["id"], check=False)

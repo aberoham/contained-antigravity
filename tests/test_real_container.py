@@ -70,7 +70,11 @@ def scratch():
                     if proc.returncode != 0:
                         problems.append(f"{job['id']}: cancel failed: {proc.stdout}{proc.stderr}")
                 if job.get("container"):
-                    subprocess.run(["docker", "rm", "--force", job["container"]], capture_output=True, timeout=60)
+                    rm = subprocess.run(
+                        ["docker", "rm", "--force", job["container"]], capture_output=True, text=True, timeout=60
+                    )
+                    if rm.returncode != 0 and "No such container" not in rm.stderr:
+                        problems.append(f"{job['container']}: docker rm failed: {rm.stderr}")
         finally:
             shutil.rmtree(root, ignore_errors=True)
         assert not problems, problems

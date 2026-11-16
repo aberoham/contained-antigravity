@@ -660,7 +660,8 @@ def test_a_resume_waiting_on_cleanup_sees_the_working_copy_is_gone(companion, co
 
 def test_a_worker_failing_after_the_result_is_stored_keeps_that_result(companion, repo):
     companion.run("review", NO_SANDBOX, scenario="review-then-repo-moves", check=False)
-    job = companion.job()
-    assert job["status"] == "failed" and job["error"].startswith("worker error:")
+    # The round's result is published before the working copy's removal fails.
+    job = companion.wait_for(lambda j: str(j.get("error") or "").startswith("worker error:"))
+    assert job["status"] == "failed"
     stored = json.loads((companion.job_dir(job["id"]) / "result.json").read_text())
     assert stored["review"]["summary"] == "Fine."
