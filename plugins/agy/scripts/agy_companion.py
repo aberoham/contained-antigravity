@@ -739,7 +739,12 @@ def stop_jobs(jobs: list[tuple[JobStore, dict[str, Any]]], phase: str, grace: fl
 
 
 def cmd_apply(args: argparse.Namespace) -> int:
-    store = store_for(args)
+    store = JobStore(os.getcwd())
+    if args.job and store.resolve(args.job) is None:
+        elsewhere = store_holding(args.job)
+        if elsewhere is not None:
+            # apply patches the checkout that ran the job, so it runs only there.
+            raise UsageError(f"Job {args.job} ran in {elsewhere.root}; run apply from that checkout.")
     job = resolve_own_job(store, args, lambda r: bool(r.get("writable")) and r.get("status") in TERMINAL_STATUSES)
     if not job:
         raise UsageError("No finished agy task with changes from this session found.")

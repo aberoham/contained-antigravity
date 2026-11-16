@@ -313,5 +313,7 @@ def test_a_job_id_finds_its_job_from_another_checkout(companion, tmp_path):
     assert result.returncode == 0, result.stderr
     assert f"Job {job['id']} (review, completed" in result.stdout
     assert job["id"] in run("status", job["id"][:-2]).stdout  # a unique prefix works too
+    applied = run("apply", job["id"])
+    assert applied.returncode == 2 and f"ran in {companion.repo.resolve()}" in applied.stderr
     missing = run("result", "review-no-such-job")
     assert missing.returncode == 2 and "No finished agy job" in missing.stderr
