@@ -704,9 +704,10 @@ def cmd_cancel(args: argparse.Namespace) -> int:
     if not job:
         raise UsageError("No running agy job from this session to cancel.")
     if not cancel_job(store, job, "cancelled"):
+        pids = ",".join(str(job[k]) for k in ("pid", "agy_pid") if job.get(k))
         print(
-            f"Cancelled {job['id']}, but ps could not check its processes, so they were not stopped "
-            f"and may still be running. Check with `ps -o pid,args -p {job.get('pid')},{job.get('agy_pid')}`.",
+            f"Cancelled {job['id']}, but ps could not check its processes, so they were not "
+            f"stopped and may still be running. Check with `ps -o pid,args -p {pids}`.",
             file=sys.stderr,
         )
         return 1
@@ -754,13 +755,7 @@ def stop_jobs(jobs: list[tuple[JobStore, dict[str, Any]]], phase: str, grace: fl
                 )
 
         store.update(record["id"], finish)
-        # A review's copy goes, unless agy may still be running in it.
-        if (
-            record.get("kind") != "task"
-            and record["id"] not in unchecked
-            and record.get("worktree")
-            and Path(record["worktree"]).exists()
-        ):
+        if record.get("kind") != "task" and record.get("worktree") and Path(record["worktree"]).exists():
             gitctx.remove_worktree(record["repo_root"], Path(record["worktree"]))
     return unchecked
 

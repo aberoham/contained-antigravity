@@ -694,6 +694,7 @@ def test_cancel_says_so_when_ps_cannot_check_the_jobs_processes(companion, tmp_p
         proc = companion.run("cancel", job["id"], check=False, PATH=f"{broken}{os.pathsep}{companion.env['PATH']}")
         assert proc.returncode == 1
         assert "ps could not check its processes" in proc.stderr and "may still be running" in proc.stderr
+        assert f"-p {job['pid']},{job['agy_pid']}`" in proc.stderr
         record = companion.job()
         assert record["status"] == "cancelled" and "may still be running" in record["phase"]
         assert _alive(job["pid"]) and _alive(job["agy_pid"])  # not signalled without a check
