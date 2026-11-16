@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -105,6 +106,20 @@ class Companion:
         (path,) = state.glob(f"*/jobs/{job_id}")
         return path
 
+    def stop_all(self) -> None:
+        """Cancel every job still active, so a failed test leaves no worker or agy running."""
+        from agylib.state import ACTIVE_STATUSES
+
+        for job in self.jobs():
+            if job.get("status") in ACTIVE_STATUSES:
+                subprocess.run(
+                    [sys.executable, str(COMPANION), "cancel", job["id"]],
+                    cwd=job.get("repo_root") or self.repo,
+                    env=self.env,
+                    capture_output=True,
+                    timeout=60,
+                )
+
     def job(self) -> dict:
         jobs = self.jobs()
         assert len(jobs) == 1, jobs
@@ -121,13 +136,17 @@ class Companion:
 
 
 @pytest.fixture
-def companion(repo: Path, tmp_path: Path) -> Companion:
-    return Companion(repo, tmp_path)
+def companion(repo: Path, tmp_path: Path) -> Iterator[Companion]:
+    instance = Companion(repo, tmp_path)
+    yield instance
+    instance.stop_all()
 
 
 @pytest.fixture
-def contained(repo: Path, tmp_path: Path) -> Companion:
-    return Companion(repo, tmp_path, container_mode=True)
+def contained(repo: Path, tmp_path: Path) -> Iterator[Companion]:
+    instance = Companion(repo, tmp_path, container_mode=True)
+    yield instance
+    instance.stop_all()
 
 
 @pytest.fixture

@@ -82,6 +82,11 @@ def main() -> int:
         return 0
     if argv[:1] == ["rm"]:
         return 0
+    if argv[:1] == ["ps"]:
+        # A container that survives `rm --force`, as one can when the daemon is in trouble.
+        if os.environ.get("FAKE_DOCKER_RM_FAILS"):
+            print("0123456789ab")
+        return 0
     if argv[:1] == ["run"]:
         run(argv[1:])
     sys.stderr.write(f"fake docker: unsupported command {argv}\n")

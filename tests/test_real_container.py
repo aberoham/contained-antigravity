@@ -17,6 +17,7 @@ import uuid
 from pathlib import Path
 
 import pytest
+from agylib.state import ACTIVE_STATUSES
 from conftest import COMPANION, git
 
 TESTS = Path(__file__).resolve().parent
@@ -58,6 +59,11 @@ def scratch():
     try:
         yield root
     finally:
+        # A failed test can leave a job running; stop it and its container first.
+        for job_file in (root / "state").glob("*/jobs/*/job.json"):
+            job = json.loads(job_file.read_text())
+            if job.get("status") in ACTIVE_STATUSES:
+                _companion(root, Path(job["repo_root"]), "cancel", job["id"])
         shutil.rmtree(root, ignore_errors=True)
 
 
@@ -155,15 +161,11 @@ def test_a_stall_logged_after_a_resume_is_seen_in_a_real_container(image, scratc
         scratch, repo, "task", "--isolation", "container", "--stall-seconds", "600", "--read-only", "probe-log-stall"
     )
     _, job = _job(scratch)
-    try:
-        assert job["status"] == "failed", proc.stdout + proc.stderr
-        stalls = job["rounds"][0]["stalls"]
-        assert len(stalls) == 2
-        # The event timer is 600 s, so only each run's log can have reported its stall.
-        assert all(s["reason"].startswith("agy log:") for s in stalls)
-    finally:
-        if job["status"] not in ("failed", "completed", "cancelled"):
-            _companion(scratch, repo, "cancel", job["id"])
+    assert job["status"] == "failed", proc.stdout + proc.stderr
+    stalls = job["rounds"][0]["stalls"]
+    assert len(stalls) == 2
+    # The event timer is 600 s, so only each run's log can have reported its stall.
+    assert all(s["reason"].startswith("agy log:") for s in stalls)
 
 
 def test_cancel_removes_a_running_container(image, scratch):

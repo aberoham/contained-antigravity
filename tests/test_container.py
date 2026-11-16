@@ -387,3 +387,12 @@ def test_a_job_gets_the_token_bytes_that_were_checked_even_if_the_file_changes(t
     (tmp_path / "job").mkdir()
     cli = container.seed_home(tmp_path / "job") / ".gemini" / "antigravity-cli"
     assert json.loads(real_read_bytes(cli / "antigravity-oauth-token")) == {"token": "checked"}
+
+
+def test_a_container_that_survives_removal_fails_the_job(contained):
+    contained.run("review", "--isolation", "container", scenario="review", check=False, FAKE_DOCKER_RM_FAILS="1")
+    job = contained.job()
+    assert job["status"] == "failed"
+    name = f"agy-{job['id']}-1"
+    assert f"Docker did not remove the job's container {name}" in job["error"]
+    assert f"docker rm --force {name}" in job["error"]

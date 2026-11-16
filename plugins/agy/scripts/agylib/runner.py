@@ -203,6 +203,8 @@ def _follow(
     if result is None and log_outcome is not None:
         return log_outcome
     # stdout is closed; agy should exit now, but keep enforcing the deadline.
+    # The tool limit no longer applies: no event can report a tool finishing,
+    # so waiting longer for one would only delay the turn's end.
     while proc.poll() is None:
         if time.monotonic() > deadline:
             return TurnOutcome("timeout", "job exceeded its time limit", result)
@@ -294,6 +296,16 @@ def _clear_logs(log_dir: Path) -> None:
         return
     except OSError as exc:
         raise RuntimeError(f"could not delete agy's earlier logs in {log_dir}: {exc}") from exc
+
+
+def _remove_container(name: str) -> None:
+    """Remove a job's container, or stop the job: a container left running
+    could still write into the job directory, and the next run needs its name."""
+    if not container.remove(name):
+        raise RuntimeError(
+            f"Docker did not remove the job's container {name}. "
+            f"Run `docker rm --force {name}`, then start or resume the job again."
+        )
 
 
 def _file_size(path: Path) -> int:
@@ -415,7 +427,7 @@ class JobRunner:
     def _stop_container(self) -> None:
         name = self._container_name()
         if name:
-            container.remove(name)
+            _remove_container(name)
 
     def _command(self, model: str, conversation: str | None, log_path: Path) -> list[str]:
         binary = Path(self.job["agy_bin"])
@@ -670,7 +682,7 @@ class JobRunner:
         try:
             proc = subprocess.run(command, capture_output=True, text=True, timeout=600)
         finally:
-            container.remove(name)
+            _remove_container(name)
         if proc.returncode != 0:
             raise RuntimeError(f"the export container failed: {proc.stderr.strip()[-500:]}")
         summary = read_json(mount / "changes.json")
