@@ -397,7 +397,17 @@ def test_a_container_that_survives_removal_fails_the_job(contained):
     assert f"Docker did not remove the job's container {name}" in job["error"]
     assert f"docker rm --force {name}" in job["error"]
     assert job["failure"] == "container"
-    assert job["container"] == name  # kept, so a cancel can try again
+    assert job["container"] == name  # kept, so the next round or the job's deletion tries again
+
+
+def test_a_turn_container_that_survives_removal_keeps_the_turns_own_failure(contained):
+    contained.run("review", "--isolation", "container", scenario="licence", check=False, FAKE_DOCKER_RM_FAILS="1")
+    job = contained.job()
+    name = f"agy-{job['id']}-1"
+    assert job["status"] == "failed" and job["failure"] == "licence"
+    assert "licence" in job["error"]
+    assert f"Also, Docker did not remove the job's container {name}" in job["error"]
+    assert job["container"] == name
 
 
 def test_an_export_container_that_survives_removal_is_reported_beside_agys_error(contained):
@@ -407,7 +417,7 @@ def test_an_export_container_that_survives_removal_is_reported_beside_agys_error
     job = contained.job()
     assert job["status"] == "failed"
     name = f"agy-{job['id']}-1-export"
-    assert "licence" in job["error"]
+    assert job["failure"] == "licence" and "licence" in job["error"]
     assert f"Also, could not export agy's changes: Docker did not remove the job's container {name}" in job["error"]
     assert job["container"] == name
 
@@ -417,8 +427,11 @@ def test_remove_trusts_a_successful_rm_and_asks_docker_otherwise(monkeypatch):
 
     from agylib import container
 
+    asked = []
+
     def answers(rm, ps):
         def fake(*args, timeout):
+            asked.append(args[0])
             reply = rm if args[0] == "rm" else ps
             return None if reply is None else subprocess.CompletedProcess(args, reply[0], reply[1], "")
 
@@ -431,8 +444,10 @@ def test_remove_trusts_a_successful_rm_and_asks_docker_otherwise(monkeypatch):
         ((1, ""), None, False),  # Docker could not say
     ]
     for rm, ps, gone in cases:
+        asked.clear()
         monkeypatch.setattr(container, "_docker", answers(rm, ps))
         assert container.remove("agy-x-1") is gone, (rm, ps)
+        assert asked == (["rm"] if rm == (0, "") else ["rm", "ps"])
 
 
 def test_a_container_left_by_one_round_is_removed_before_the_next(contained):
@@ -460,7 +475,8 @@ def test_a_container_left_by_one_round_is_removed_before_the_next(contained):
 def test_a_round_that_fails_in_cleanup_hides_the_earlier_patch(contained, repo):
     contained.run("task", "fix the bug", scenario="container")
     job = contained.job()
-    assert "Applied" not in contained.run("apply", job["id"], "--check").stdout  # a clean check, not an apply
+    assert "apply cleanly" in contained.run("apply", job["id"], "--check").stdout
+    # "-2" matches the second round's container, agy-<id>-2.
     contained.run("task", "--resume-last", "carry on", scenario="container", check=False, FAKE_DOCKER_RM_FAILS="-2")
     job = contained.job()
     assert job["status"] == "failed" and "Docker did not remove" in job["error"]
@@ -473,7 +489,7 @@ def test_deleting_a_job_tries_its_leftover_container_again(contained):
     contained.run("task", "fix the bug", scenario="container", check=False, FAKE_DOCKER_RM_FAILS="1")
     job = contained.job()
     before = contained.docker_calls.read_text().count(f'"agy-{job["id"]}-1"')
-    contained.run("cleanup", job["id"])
-    calls = [json.loads(line) for line in contained.docker_calls.read_text().splitlines()]
-    assert ["rm", "--force", f"agy-{job['id']}-1"] in calls
+    # Docker still cannot remove it; the working copy goes anyway.
+    assert "Removed 1 job working copy" in contained.run("cleanup", job["id"], FAKE_DOCKER_RM_FAILS="1").stdout
     assert contained.docker_calls.read_text().count(f'"agy-{job["id"]}-1"') > before
+    assert not Path(job["worktree"]).exists()

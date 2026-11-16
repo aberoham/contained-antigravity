@@ -656,3 +656,11 @@ def test_a_resume_waiting_on_cleanup_sees_the_working_copy_is_gone(companion, co
     assert len(outcome) == 1 and isinstance(outcome[0], companion_module.UsageError)
     assert "working copy no longer exists" in str(outcome[0])
     assert companion.job()["status"] == job["status"]  # unchanged: the resume never queued it
+
+
+def test_a_worker_failing_after_the_result_is_stored_keeps_that_result(companion, repo):
+    companion.run("review", NO_SANDBOX, scenario="review-then-repo-moves", check=False)
+    job = companion.job()
+    assert job["status"] == "failed" and job["error"].startswith("worker error:")
+    stored = json.loads((companion.job_dir(job["id"]) / "result.json").read_text())
+    assert stored["review"]["summary"] == "Fine."

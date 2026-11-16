@@ -434,9 +434,11 @@ class JobRunner:
         return str(trusted / brain) + os.sep
 
     def _stop_container(self) -> None:
+        """Remove the turn's container. A failure is recorded, not raised, so
+        the turn's own outcome still decides how the round is reported."""
         name = self._container_name()
-        if name:
-            _remove_container(name)
+        if name and not container.remove(name):
+            self.leftover_container = name
 
     def _command(self, model: str, conversation: str | None, log_path: Path) -> list[str]:
         binary = Path(self.job["agy_bin"])
@@ -513,6 +515,8 @@ class JobRunner:
                 on_start=self._record_agy_pid,
                 on_stop=self._stop_container,
             )
+            if self.leftover_container:
+                break  # no further turn while the last container may still be running
             # A finished turn reports its total; an interrupted one only its steps.
             turn_usage = (outcome.result or {}).get("usage") or self.step_usage
             for key, value in turn_usage.items():
@@ -591,10 +595,18 @@ class JobRunner:
             if plan_text is not None:
                 stored["plan_path"] = str(plan_file)
                 stored["plan_markdown"] = plan_text
-        if self.job.get("writable"):
-            patch_file = self.dir / "changes.patch"
-            if patch_file.exists():
-                patch_file.unlink()  # never leave an earlier round's patch for apply
+        if self.leftover_container:
+            # The turn's container may still be changing the working copy, so
+            # nothing is exported from it.
+            note = str(ContainerNotRemoved(self.leftover_container))
+            if error is None:
+                error, failure_class = note, "container"
+            else:
+                error = f"{error}\n\nAlso, {note}"
+        patch_file = self.dir / "changes.patch"
+        if patch_file.exists():
+            patch_file.unlink()  # never leave an earlier round's patch for apply
+        if self.job.get("writable") and not self.leftover_container:
             try:
                 changes = self._export_changes()
                 patch_file.write_bytes(changes["patch"])

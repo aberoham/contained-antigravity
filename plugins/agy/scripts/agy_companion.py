@@ -587,13 +587,20 @@ def cmd_worker(args: argparse.Namespace) -> int:
         store.update(args.job, claim)
     except _Stopped:
         return 0  # cancelled before the worker started
+    started = time.time()
     try:
         JobRunner(store, args.job).run()
     except Exception as exc:  # noqa: BLE001 - record any failure on the job
         error = f"worker error: {exc}"
-        # An earlier round's result and patch must not pass for this round's.
+        # An earlier round's result and patch must not pass for this round's;
+        # files this round already wrote stay.
         for name in ("result.json", "changes.patch"):
-            (store.job_dir(args.job) / name).unlink(missing_ok=True)
+            path = store.job_dir(args.job) / name
+            try:
+                if path.stat().st_mtime < started:
+                    path.unlink()
+            except FileNotFoundError:
+                pass
 
         def fail(record: dict[str, Any]) -> None:
             if record.get("status") != "cancelled":
