@@ -529,6 +529,10 @@ def continue_job(
             gitctx.install_hooks(Path(record["worktree"]), hook_command(job_dir))  # .agents holds only the hook again
         except Exception as exc:
             error = f"could not prepare the working copy: {exc}"
+            # As when a worker fails: the earlier round's result and patch
+            # must not pass for this failed round's.
+            for name in ("result.json", "changes.patch"):
+                (job_dir / name).unlink(missing_ok=True)
             store.update(
                 job_id,
                 lambda r: r.update(
@@ -699,20 +703,31 @@ def cmd_cancel(args: argparse.Namespace) -> int:
     job = resolve_own_job(store, args, lambda r: r.get("status") in ACTIVE_STATUSES)
     if not job:
         raise UsageError("No running agy job from this session to cancel.")
-    cancel_job(store, job, "cancelled")
+    if not cancel_job(store, job, "cancelled"):
+        print(
+            f"Cancelled {job['id']}, but ps could not check its processes, so they were not stopped "
+            f"and may still be running. Check with `ps -o pid,args -p {job.get('pid')},{job.get('agy_pid')}`.",
+            file=sys.stderr,
+        )
+        return 1
     print(f"Cancelled {job['id']}.")
     return 0
 
 
-def cancel_job(store: JobStore, job: dict[str, Any], phase: str, grace: float = 10) -> None:
-    """Stop a job. It is marked "stopping" (still active, so nothing can resume
-    it) while its processes are stopped, then "cancelled". Process ids are
-    cleared only if no newer worker generation has started meanwhile."""
-    stop_jobs([(store, job)], phase, grace)
+def cancel_job(store: JobStore, job: dict[str, Any], phase: str, grace: float = 10) -> bool:
+    """Stop a job, and say whether its processes could be checked. It is
+    marked "stopping" (still active, so nothing can resume it) while its
+    processes are stopped, then "cancelled". Process ids are cleared only if
+    no newer worker generation has started meanwhile."""
+    return job["id"] not in stop_jobs([(store, job)], phase, grace)
 
 
-def stop_jobs(jobs: list[tuple[JobStore, dict[str, Any]]], phase: str, grace: float) -> None:
-    """Stop several jobs at once, so the total wait is one grace period."""
+def stop_jobs(jobs: list[tuple[JobStore, dict[str, Any]]], phase: str, grace: float) -> set[str]:
+    """Stop several jobs at once, so the total wait is one grace period.
+
+    Returns the ids of jobs whose processes could not be checked, so may
+    still be running; their phase says so.
+    """
     claimed = []
     for store, job in jobs:
 
@@ -723,19 +738,31 @@ def stop_jobs(jobs: list[tuple[JobStore, dict[str, Any]]], phase: str, grace: fl
         record = store.update(job["id"], begin)
         if record.get("status") == "stopping":
             claimed.append((store, record))
-    terminate_job_processes([record for _, record in claimed], grace=grace)
+    unchecked: set[str] = set()
+    terminate_job_processes([record for _, record in claimed], grace=grace, unchecked=unchecked)
     for store, record in claimed:
         generation = record.get("generation")
+        ended = phase
+        if record["id"] in unchecked:
+            pids = ", ".join(str(record[k]) for k in ("pid", "agy_pid") if record.get(k))
+            ended = f"{phase}; ps could not check its processes ({pids}), which may still be running"
 
-        def finish(current: dict[str, Any], generation: Any = generation) -> None:
+        def finish(current: dict[str, Any], generation: Any = generation, ended: str = ended) -> None:
             if current.get("generation") == generation:
                 current.update(
-                    {"status": "cancelled", "phase": phase, "completed_at": now_iso(), "pid": None, "agy_pid": None}
+                    {"status": "cancelled", "phase": ended, "completed_at": now_iso(), "pid": None, "agy_pid": None}
                 )
 
         store.update(record["id"], finish)
-        if record.get("kind") != "task" and record.get("worktree") and Path(record["worktree"]).exists():
+        # A review's copy goes, unless agy may still be running in it.
+        if (
+            record.get("kind") != "task"
+            and record["id"] not in unchecked
+            and record.get("worktree")
+            and Path(record["worktree"]).exists()
+        ):
             gitctx.remove_worktree(record["repo_root"], Path(record["worktree"]))
+    return unchecked
 
 
 def cmd_apply(args: argparse.Namespace) -> int:

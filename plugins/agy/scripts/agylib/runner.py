@@ -843,18 +843,25 @@ def _tail(path: Path, start: int = 0, limit: int = 2000) -> str:
         return handle.read(limit).decode("utf-8", errors="replace")
 
 
-def _command_line(pid: int) -> str:
-    """The process's command line, or "" when it cannot be read, so that it is never signalled."""
+def _command_line(pid: int) -> str | None:
+    """The process's command line, or None when ps cannot report it."""
     try:
         proc = subprocess.run(["ps", "-ww", "-o", "args=", "-p", str(pid)], capture_output=True, text=True)
     except OSError:
-        return ""
-    return proc.stdout if proc.returncode == 0 else ""
+        return None
+    return proc.stdout if proc.returncode == 0 else None
 
 
-def terminate_job_processes(jobs: list[dict[str, Any]], grace: float = STOP_GRACE_SECONDS) -> bool:
+def terminate_job_processes(
+    jobs: list[dict[str, Any]], grace: float = STOP_GRACE_SECONDS, unchecked: set[str] | None = None
+) -> bool:
     """Stop the workers and agy process groups of several jobs at once,
-    escalating to SIGKILL after one shared grace period."""
+    escalating to SIGKILL after one shared grace period.
+
+    A live process whose command line ps cannot report is not signalled,
+    because it might no longer be the job's; its job id is added to
+    unchecked, so the caller can say the job may still be running.
+    """
     groups = set()
     containers = [str(job["container"]) for job in jobs if job.get("container")]
     for job in jobs:
@@ -872,7 +879,13 @@ def terminate_job_processes(jobs: list[dict[str, Any]], grace: float = STOP_GRAC
             # record whose pid the system has since given to another process
             # fails these tests, and signalling that process's group would
             # stop the user's own programs.
-            if group == int(pid) and str(job.get("id", "")) in _command_line(int(pid)):
+            if group != int(pid):
+                continue
+            command_line = _command_line(int(pid))
+            if command_line is None:
+                if unchecked is not None:
+                    unchecked.add(str(job.get("id", "")))
+            elif str(job.get("id", "")) in command_line:
                 groups.add(group)
     for group in groups:
         _signal_group(group, signal.SIGTERM)

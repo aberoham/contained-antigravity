@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -665,3 +666,40 @@ def test_a_worker_failing_after_the_result_is_stored_keeps_that_result(companion
     assert job["status"] == "failed"
     stored = json.loads((companion.job_dir(job["id"]) / "result.json").read_text())
     assert stored["review"]["summary"] == "Fine."
+
+
+def test_a_resume_that_fails_in_preparation_hides_the_earlier_patch(companion, tmp_path):
+    companion.run("task", NO_SANDBOX, "fix it", scenario="task")
+    job = companion.job()
+    assert "apply cleanly" in companion.run("apply", job["id"], "--check").stdout
+    agents = Path(job["worktree"]) / ".agents"
+    shutil.rmtree(agents)
+    agents.symlink_to(tmp_path)  # install_hooks refuses a symlinked .agents
+    results = tmp_path / "results.txt"
+    results.write_text("output\n")
+    companion.run("resume", job["id"], str(results), NO_SANDBOX, scenario="task", check=False)
+    job = companion.job()
+    assert job["status"] == "failed" and "could not prepare the working copy" in job["error"]
+    assert "changed no files" in companion.run("apply", job["id"], "--check").stdout
+
+
+def test_cancel_says_so_when_ps_cannot_check_the_jobs_processes(companion, tmp_path):
+    companion.run("task", NO_SANDBOX, "--background", "--model", "high", "do it", scenario="stall")
+    job = companion.wait_for(lambda j: j.get("agy_pid"))
+    broken = tmp_path / "broken-ps"
+    broken.mkdir()
+    (broken / "ps").write_text("#!/bin/sh\nexit 1\n")
+    (broken / "ps").chmod(0o755)
+    try:
+        proc = companion.run("cancel", job["id"], check=False, PATH=f"{broken}{os.pathsep}{companion.env['PATH']}")
+        assert proc.returncode == 1
+        assert "ps could not check its processes" in proc.stderr and "may still be running" in proc.stderr
+        record = companion.job()
+        assert record["status"] == "cancelled" and "may still be running" in record["phase"]
+        assert _alive(job["pid"]) and _alive(job["agy_pid"])  # not signalled without a check
+    finally:
+        for pid in (job["pid"], job["agy_pid"]):
+            try:
+                os.killpg(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
