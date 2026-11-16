@@ -15,6 +15,7 @@ import json
 import os
 import shutil
 import sys
+import time
 
 VALUE_OPTIONS = {"--entrypoint", "--name", "--user", "--env", "--volume", "--workdir", "--format"}
 
@@ -80,9 +81,25 @@ def main() -> int:
         else:
             print("sha256:fake")
         return 0
+    # FAKE_DOCKER_RM_FAILS names containers (by substring, or "1" for all)
+    # that survive `rm --force`, as one can when the daemon is in trouble.
+    stuck = os.environ.get("FAKE_DOCKER_RM_FAILS", "")
+    survives = bool(stuck) and (stuck == "1" or stuck in " ".join(argv))
     if argv[:1] == ["rm"]:
+        if survives:
+            sys.stderr.write("Error response from daemon: could not kill container\n")
+            return 1
+        return 0
+    if argv[:1] == ["ps"]:
+        if survives:
+            print("0123456789ab")
         return 0
     if argv[:1] == ["run"]:
+        if "_export" in argv and os.environ.get("FAKE_DOCKER_EXPORT_SLEEPS"):
+            time.sleep(60)
+        if "_export" in argv and os.environ.get("FAKE_DOCKER_EXPORT_FAILS"):
+            sys.stderr.write("export: no space left on device\n")
+            return 1
         run(argv[1:])
     sys.stderr.write(f"fake docker: unsupported command {argv}\n")
     return 2

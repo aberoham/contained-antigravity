@@ -486,7 +486,16 @@ def export_command(baseline: str, *, name: str, mounts: Mounts, home: Path) -> l
     ]
 
 
-def remove(name: str, timeout: float = 30) -> None:
-    """Stop and remove the container, if it still exists. Stopping the docker
-    client does not stop the container, so this runs after every turn."""
-    _docker("rm", "--force", name, timeout=timeout)
+def remove(name: str, timeout: float = 30) -> bool:
+    """Stop and remove the container, if it still exists, and say whether it is gone.
+
+    Stopping the docker client does not stop the container, so this runs
+    after every turn. When the removal itself fails or times out, Docker is
+    asked whether the container still exists; False means it does, or that
+    Docker could not say.
+    """
+    removed = _docker("rm", "--force", name, timeout=timeout)
+    if removed is not None and removed.returncode == 0:
+        return True
+    listed = _docker("ps", "--all", "--quiet", "--filter", f"name=^{name}$", timeout=timeout)
+    return bool(listed and listed.returncode == 0 and not listed.stdout.strip())

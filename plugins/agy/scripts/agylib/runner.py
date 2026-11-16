@@ -34,6 +34,7 @@ STOP_GRACE_SECONDS = 10
 DEFAULT_MAX_STALL_RESUMES = 2
 DEFAULT_MAX_MINUTES = 60
 PROGRESS_WRITE_INTERVAL = 1.0
+EXPORT_TIMEOUT_SECONDS = 600
 PERMISSION_DENIED = re.compile(r'permission check failed for command "(.*)": ', re.S)
 
 CONTINUE_AFTER_STALL = (
@@ -203,6 +204,8 @@ def _follow(
     if result is None and log_outcome is not None:
         return log_outcome
     # stdout is closed; agy should exit now, but keep enforcing the deadline.
+    # The tool limit no longer applies: no event can report a tool finishing,
+    # so waiting longer for one would only delay the turn's end.
     while proc.poll() is None:
         if time.monotonic() > deadline:
             return TurnOutcome("timeout", "job exceeded its time limit", result)
@@ -296,6 +299,24 @@ def _clear_logs(log_dir: Path) -> None:
         raise RuntimeError(f"could not delete agy's earlier logs in {log_dir}: {exc}") from exc
 
 
+class ContainerNotRemoved(RuntimeError):
+    """Docker did not remove a job's container; name is the container's."""
+
+    def __init__(self, name: str):
+        super().__init__(
+            f"Docker did not remove the job's container {name}. "
+            f"Run `docker rm --force {name}`, then start or resume the job again."
+        )
+        self.name = name
+
+
+def _remove_container(name: str) -> None:
+    """Remove a job's container, or stop the job: a container left running
+    could still write into the job directory, and the next run needs its name."""
+    if not container.remove(name):
+        raise ContainerNotRemoved(name)
+
+
 def _file_size(path: Path) -> int:
     try:
         return path.lstat().st_size
@@ -318,6 +339,8 @@ class JobRunner:
         self.stderr_path = self.dir / "agy.stderr.txt"
         self.stderr_start = 0
         self.round_logs: list[Path] = []
+        self.leftover_container: str | None = None
+        self.written: set[str] = set()  # files in the job directory this round has written
         self._last_write = 0.0
 
     # Event handling -------------------------------------------------------
@@ -413,9 +436,11 @@ class JobRunner:
         return str(trusted / brain) + os.sep
 
     def _stop_container(self) -> None:
+        """Remove the turn's container. A failure is recorded, not raised, so
+        the turn's own outcome still decides how the round is reported."""
         name = self._container_name()
-        if name:
-            container.remove(name)
+        if name and not container.remove(name):
+            self.leftover_container = name
 
     def _command(self, model: str, conversation: str | None, log_path: Path) -> list[str]:
         binary = Path(self.job["agy_bin"])
@@ -460,6 +485,11 @@ class JobRunner:
         started = time.monotonic()
         env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
         usage_total: dict[str, int] = {}
+        leftover = self.job.get("container")
+        if leftover:
+            # An earlier round's container whose removal was not confirmed
+            # could still write into the working copy this round uses.
+            _remove_container(leftover)
         if self.job.get("isolation") == "container":
             container.seed_home(self.dir)  # a fresh home for this round, from the sign-in
         # stderr is appended to across rounds; earlier rounds' errors are not this round's.
@@ -492,6 +522,8 @@ class JobRunner:
             for key, value in turn_usage.items():
                 if isinstance(value, int):
                     usage_total[key] = usage_total.get(key, 0) + value
+            if self.leftover_container:
+                break  # no further turn while the last container may still be running
             conversation = self.job.get("conversation_id") or conversation
             if outcome.kind == "stall" and conversation and len(round_record["stalls"]) < max_resumes:
                 round_record["stalls"].append(
@@ -565,20 +597,36 @@ class JobRunner:
             if plan_text is not None:
                 stored["plan_path"] = str(plan_file)
                 stored["plan_markdown"] = plan_text
-        if self.job.get("writable"):
-            patch_file = self.dir / "changes.patch"
-            if patch_file.exists():
-                patch_file.unlink()  # never leave an earlier round's patch for apply
+        if self.leftover_container:
+            # The turn's container may still be changing the working copy, so
+            # nothing is exported from it.
+            note = str(ContainerNotRemoved(self.leftover_container))
+            if error is None:
+                error, failure_class = note, "container"
+            else:
+                error = f"{error}\n\nAlso, {note}"
+        patch_file = self.dir / "changes.patch"
+        if patch_file.exists():
+            patch_file.unlink()  # never leave an earlier round's patch for apply
+        if self.job.get("writable") and not self.leftover_container:
             try:
                 changes = self._export_changes()
                 patch_file.write_bytes(changes["patch"])
+                self.written.add(patch_file.name)
                 stored["changed_files"] = changes["name_status"]
                 stored["changed_paths"] = changes["paths"]
             except (gitctx.GitError, RuntimeError) as exc:
+                if isinstance(exc, ContainerNotRemoved):
+                    # Kept on the job: the next round, or deleting the job, tries again.
+                    self.leftover_container = exc.name
                 if error is None:
-                    error, failure_class = f"could not export agy's changes: {exc}", "agy-failed"
+                    failed_class = "container" if isinstance(exc, ContainerNotRemoved) else "agy-failed"
+                    error, failure_class = f"could not export agy's changes: {exc}", failed_class
+                else:
+                    error = f"{error}\n\nAlso, could not export agy's changes: {exc}"
 
         write_json(self.dir / "result.json", stored)
+        self.written.add("result.json")
         if error is not None:
             status = "failed"
         elif commands:
@@ -601,7 +649,7 @@ class JobRunner:
                     "failure": failure_class,
                     "pid": None,
                     "agy_pid": None,
-                    "container": None,
+                    "container": self.leftover_container,
                     "model": round_record["final_model"],
                     "completed_at": now_iso(),
                     "queued_commands": commands,
@@ -614,8 +662,13 @@ class JobRunner:
         # A review's or plan's working copy has no further use unless agy is
         # waiting on queued commands, so remove it rather than leave it
         # registered in the user's repository. Tasks keep theirs for
-        # --resume-last and apply.
-        if self.job.get("kind") != "task" and record.get("status") in ("completed", "failed", "cancelled"):
+        # --resume-last and apply. While a container may still be running in
+        # it, the copy stays; pruning or cleanup retries the removal first.
+        if (
+            self.job.get("kind") != "task"
+            and record.get("status") in ("completed", "failed", "cancelled")
+            and not self.leftover_container
+        ):
             gitctx.remove_worktree(self.job["repo_root"], Path(self.job["worktree"]))
         return record
 
@@ -659,7 +712,7 @@ class JobRunner:
         for stale in ("changes.patch", "changes.json"):
             (mount / stale).unlink(missing_ok=True)
         # The export container is recorded on the job like the turn's, so a
-        # cancel or a session end removes it too; the finally covers a timeout.
+        # cancel or a session end removes it too.
         name = f"{self._container_name()}-export"
         # The export stages agy's edits in the copy's own index, so it needs
         # the copy writable even after a read-only round.
@@ -667,12 +720,29 @@ class JobRunner:
             self.job["baseline"], name=name, mounts=self._mounts(writable=True), home=container.export_home(self.dir)
         )
         self.store.update(self.job_id, lambda r: r.update({"container": name}))
+        proc: subprocess.CompletedProcess | None = None
+        removed = False
         try:
-            proc = subprocess.run(command, capture_output=True, text=True, timeout=600)
+            proc = subprocess.run(command, capture_output=True, text=True, timeout=EXPORT_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            pass
         finally:
-            container.remove(name)
-        if proc.returncode != 0:
-            raise RuntimeError(f"the export container failed: {proc.stderr.strip()[-500:]}")
+            # Also when a cancel or session end stops the worker mid-export.
+            removed = container.remove(name)
+        if proc is not None and proc.returncode == 0:
+            if not removed:
+                raise ContainerNotRemoved(name)
+        else:
+            # The export's own failure comes first; a removal failure is added to it.
+            why = (
+                f"the export container did not finish within {EXPORT_TIMEOUT_SECONDS} s"
+                if proc is None
+                else f"the export container failed: {proc.stderr.strip()[-500:]}"
+            )
+            if not removed:
+                self.leftover_container = name
+                why += f"\n\nAlso, {ContainerNotRemoved(name)}"
+            raise RuntimeError(why)
         summary = read_json(mount / "changes.json")
         patch_file = mount / "changes.patch"
         if not isinstance(summary, dict) or not patch_file.is_file():

@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
+import time
 from pathlib import Path
 
 from agylib import container
@@ -387,3 +389,145 @@ def test_a_job_gets_the_token_bytes_that_were_checked_even_if_the_file_changes(t
     (tmp_path / "job").mkdir()
     cli = container.seed_home(tmp_path / "job") / ".gemini" / "antigravity-cli"
     assert json.loads(real_read_bytes(cli / "antigravity-oauth-token")) == {"token": "checked"}
+
+
+def test_a_container_that_survives_removal_fails_the_job(contained):
+    contained.run("review", "--isolation", "container", scenario="review", check=False, FAKE_DOCKER_RM_FAILS="1")
+    job = contained.job()
+    assert job["status"] == "failed"
+    name = f"agy-{job['id']}-1"
+    assert f"Docker did not remove the job's container {name}" in job["error"]
+    assert f"docker rm --force {name}" in job["error"]
+    assert job["failure"] == "container"
+    assert job["container"] == name  # kept, so the next round or the job's deletion tries again
+    assert job["rounds"][0]["usage"]["total_tokens"] == 120  # the turn's usage is still counted
+    assert Path(job["worktree"]).is_dir()  # not deleted while the container may still use it
+
+
+def test_an_export_that_fails_keeps_its_own_error_when_its_container_survives(contained):
+    contained.run(
+        "task",
+        "--isolation",
+        "container",
+        "fix the bug",
+        scenario="container",
+        check=False,
+        FAKE_DOCKER_EXPORT_FAILS="1",
+        FAKE_DOCKER_RM_FAILS="-export",
+    )
+    job = contained.job()
+    name = f"agy-{job['id']}-1-export"
+    assert job["status"] == "failed" and job["failure"] == "agy-failed"
+    assert "the export container failed: export: no space left on device" in job["error"]
+    assert f"Also, Docker did not remove the job's container {name}" in job["error"]
+    assert job["container"] == name
+
+
+def test_a_turn_container_that_survives_removal_keeps_the_turns_own_failure(contained):
+    contained.run("review", "--isolation", "container", scenario="licence", check=False, FAKE_DOCKER_RM_FAILS="1")
+    job = contained.job()
+    name = f"agy-{job['id']}-1"
+    assert job["status"] == "failed" and job["failure"] == "licence"
+    assert "licence" in job["error"]
+    assert f"Also, Docker did not remove the job's container {name}" in job["error"]
+    assert job["container"] == name
+
+
+def test_an_export_container_that_survives_removal_is_reported_beside_agys_error(contained):
+    contained.run(
+        "task", "--isolation", "container", "do it", scenario="licence", check=False, FAKE_DOCKER_RM_FAILS="-export"
+    )
+    job = contained.job()
+    assert job["status"] == "failed"
+    name = f"agy-{job['id']}-1-export"
+    assert job["failure"] == "licence" and "licence" in job["error"]
+    assert f"Also, could not export agy's changes: Docker did not remove the job's container {name}" in job["error"]
+    assert job["container"] == name
+
+
+def test_remove_trusts_a_successful_rm_and_asks_docker_otherwise(monkeypatch):
+    import subprocess
+
+    from agylib import container
+
+    asked = []
+
+    def answers(rm, ps):
+        def fake(*args, timeout):
+            asked.append(args[0])
+            reply = rm if args[0] == "rm" else ps
+            return None if reply is None else subprocess.CompletedProcess(args, reply[0], reply[1], "")
+
+        return fake
+
+    cases = [
+        ((0, ""), None, True),  # removed; a slow `docker ps` must not undo that
+        (None, (0, ""), True),  # rm timed out, but the container is gone
+        ((1, ""), (0, "0123456789ab\n"), False),  # still listed
+        ((1, ""), None, False),  # Docker could not say
+    ]
+    for rm, ps, gone in cases:
+        asked.clear()
+        monkeypatch.setattr(container, "_docker", answers(rm, ps))
+        assert container.remove("agy-x-1") is gone, (rm, ps)
+        assert asked == (["rm"] if rm == (0, "") else ["rm", "ps"])
+
+
+def test_a_container_left_by_one_round_is_removed_before_the_next(contained):
+    contained.run("task", "fix the bug", scenario="container", check=False, FAKE_DOCKER_RM_FAILS="1")
+    first = contained.job()
+    left = f"agy-{first['id']}-1"
+    assert first["status"] == "failed" and first["container"] == left
+    agy_runs = len(contained.agy_calls())
+
+    # While Docker still cannot remove it, the next round stops before agy starts.
+    contained.run("task", "--resume-last", "carry on", scenario="container", check=False, FAKE_DOCKER_RM_FAILS=left)
+    job = contained.job()
+    assert job["status"] == "failed" and job["failure"] == "container"
+    assert f"Docker did not remove the job's container {left}" in job["error"]
+    assert len(contained.agy_calls()) == agy_runs
+
+    # Once it can, the round removes it first and runs.
+    contained.run("task", "--resume-last", "carry on", scenario="container")
+    job = contained.job()
+    assert job["status"] == "completed" and job["container"] is None
+    calls = [json.loads(line) for line in contained.docker_calls.read_text().splitlines()]
+    assert calls.count(["rm", "--force", left]) >= 3
+
+
+def test_a_round_that_fails_in_cleanup_hides_the_earlier_patch(contained, repo):
+    contained.run("task", "fix the bug", scenario="container")
+    job = contained.job()
+    assert "apply cleanly" in contained.run("apply", job["id"], "--check").stdout
+    second = f"agy-{job['id']}-2"
+    contained.run("task", "--resume-last", "carry on", scenario="container", check=False, FAKE_DOCKER_RM_FAILS=second)
+    job = contained.job()
+    assert job["status"] == "failed" and "Docker did not remove" in job["error"]
+    result = contained.run("result", job["id"], check=False)
+    assert "Docker did not remove" in result.stdout + result.stderr
+    assert "changed no files" in contained.run("apply", job["id"], "--check").stdout
+
+
+def test_cleaning_up_a_job_tries_its_leftover_container_again(contained):
+    contained.run("task", "fix the bug", scenario="container", check=False, FAKE_DOCKER_RM_FAILS="1")
+    job = contained.job()
+    before = contained.docker_calls.read_text().count(f'"agy-{job["id"]}-1"')
+    # Docker still cannot remove it; the working copy goes anyway.
+    assert "Removed 1 job working copy" in contained.run("cleanup", job["id"], FAKE_DOCKER_RM_FAILS="1").stdout
+    assert contained.docker_calls.read_text().count(f'"agy-{job["id"]}-1"') > before
+    assert not Path(job["worktree"]).exists()
+
+
+def test_a_worker_stopped_during_the_export_still_removes_the_export_container(contained):
+    contained.run("task", "--background", "fix the bug", scenario="container", FAKE_DOCKER_EXPORT_SLEEPS="1")
+    job = contained.wait_for(lambda j: str(j.get("container") or "").endswith("-export"))
+    name = job["container"]
+    os.kill(job["pid"], signal.SIGTERM)  # what a cancel or session end sends the worker
+    name_removed = ["rm", "--force", name]
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        calls = [json.loads(line) for line in contained.docker_calls.read_text().splitlines()]
+        if name_removed in calls:
+            break
+        time.sleep(0.2)
+    assert name_removed in calls

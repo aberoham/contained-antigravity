@@ -60,6 +60,8 @@ _PATTERNS = (
             "cannot connect to the docker daemon",
             "unable to find image",
             "no such image",
+            # The worker's own message when a container survives removal.
+            "docker did not remove the job's container",
         ),
     ),
 )

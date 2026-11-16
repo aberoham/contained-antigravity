@@ -17,6 +17,7 @@ import uuid
 from pathlib import Path
 
 import pytest
+from agylib.state import ACTIVE_STATUSES
 from conftest import COMPANION, git
 
 TESTS = Path(__file__).resolve().parent
@@ -58,7 +59,25 @@ def scratch():
     try:
         yield root
     finally:
-        shutil.rmtree(root, ignore_errors=True)
+        problems = []
+        try:
+            # A failed test can leave a job running, or a container whose
+            # removal was not confirmed; stop both before deleting the state.
+            for job_file in (root / "state").glob("*/jobs/*/job.json"):
+                job = json.loads(job_file.read_text())
+                if job.get("status") in ACTIVE_STATUSES:
+                    proc = _companion(root, Path(job["repo_root"]), "cancel", job["id"])
+                    if proc.returncode != 0:
+                        problems.append(f"{job['id']}: cancel failed: {proc.stdout}{proc.stderr}")
+                if job.get("container"):
+                    rm = subprocess.run(
+                        ["docker", "rm", "--force", job["container"]], capture_output=True, text=True, timeout=60
+                    )
+                    if rm.returncode != 0 and "No such container" not in rm.stderr:
+                        problems.append(f"{job['container']}: docker rm failed: {rm.stderr}")
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+        assert not problems, problems
 
 
 def _job(scratch: Path) -> tuple[Path, dict]:
@@ -155,15 +174,11 @@ def test_a_stall_logged_after_a_resume_is_seen_in_a_real_container(image, scratc
         scratch, repo, "task", "--isolation", "container", "--stall-seconds", "600", "--read-only", "probe-log-stall"
     )
     _, job = _job(scratch)
-    try:
-        assert job["status"] == "failed", proc.stdout + proc.stderr
-        stalls = job["rounds"][0]["stalls"]
-        assert len(stalls) == 2
-        # The event timer is 600 s, so only each run's log can have reported its stall.
-        assert all(s["reason"].startswith("agy log:") for s in stalls)
-    finally:
-        if job["status"] not in ("failed", "completed", "cancelled"):
-            _companion(scratch, repo, "cancel", job["id"])
+    assert job["status"] == "failed", proc.stdout + proc.stderr
+    stalls = job["rounds"][0]["stalls"]
+    assert len(stalls) == 2
+    # The event timer is 600 s, so only each run's log can have reported its stall.
+    assert all(s["reason"].startswith("agy log:") for s in stalls)
 
 
 def test_cancel_removes_a_running_container(image, scratch):
@@ -183,8 +198,18 @@ def test_cancel_removes_a_running_container(image, scratch):
         time.sleep(0.5)
     name = job["container"]
     assert name == f"agy-{job['id']}-1"
-    running = subprocess.run(["docker", "ps", "--quiet", "--filter", f"name=^{name}$"], capture_output=True, text=True)
-    assert running.stdout.strip(), "the job's container is not running"
+    # The name is recorded when the docker client starts, before Docker has
+    # necessarily created the container.
+    running = None
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        running = subprocess.run(
+            ["docker", "ps", "--quiet", "--filter", f"name=^{name}$"], capture_output=True, text=True
+        )
+        if running.stdout.strip():
+            break
+        time.sleep(0.5)
+    assert running is not None and running.stdout.strip(), "the job's container is not running"
     proc = _companion(scratch, repo, "cancel", job["id"])
     assert "Cancelled" in proc.stdout, proc.stdout + proc.stderr
     left = subprocess.run(

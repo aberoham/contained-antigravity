@@ -190,7 +190,13 @@ def _relative_reference(match: re.Match[str], root: str) -> str:
 def _result_text(job: dict[str, Any], stored: dict[str, Any] | None) -> str:
     head = f"Job {job.get('id')} ({job.get('kind')}, {job.get('status')}, model {job.get('model')})"
     if not stored:
-        return f"{head}\nNo result yet.\n{next_steps(job)}"
+        if not job.get("error"):
+            return f"{head}\nNo result yet.\n{next_steps(job)}"
+        # The worker failed before agy's reply was stored.
+        parts = [head, "", f"Error: {job['error']}"]
+        if job.get("failure"):
+            parts.append(f"Failure: {job['failure']} (exit {failure.exit_code(job['failure'])})")
+        return "\n".join([*parts, next_steps(job)])
     parts = [head, ""]
     if job.get("error"):
         parts += [f"Error: {job['error']}", ""]

@@ -587,10 +587,18 @@ def cmd_worker(args: argparse.Namespace) -> int:
         store.update(args.job, claim)
     except _Stopped:
         return 0  # cancelled before the worker started
+    runner: JobRunner | None = None
     try:
-        JobRunner(store, args.job).run()
+        runner = JobRunner(store, args.job)
+        runner.run()
     except Exception as exc:  # noqa: BLE001 - record any failure on the job
         error = f"worker error: {exc}"
+        # An earlier round's result and patch must not pass for this round's;
+        # files this round already wrote stay.
+        written = runner.written if runner else set()
+        for name in ("result.json", "changes.patch"):
+            if name not in written:
+                (store.job_dir(args.job) / name).unlink(missing_ok=True)
 
         def fail(record: dict[str, Any]) -> None:
             if record.get("status") != "cancelled":

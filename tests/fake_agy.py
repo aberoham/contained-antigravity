@@ -339,6 +339,22 @@ def main() -> int:
         result(conversation, json.dumps(review), structured_output=review)
         return 0
 
+    if scenario == "review-then-repo-moves":
+        # The user moves the repository while the review runs, so the worker
+        # fails removing the working copy after it has stored the result.
+        common = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        root = Path(common).parent
+        root.rename(root.with_name(root.name + "-moved"))
+        review = {"verdict": "approve", "summary": "Fine.", "findings": [], "next_steps": []}
+        result(conversation, json.dumps(review), structured_output=review)
+        return 0
+
     if scenario == "review-cannot":
         review = {
             "verdict": "cannot-review",
