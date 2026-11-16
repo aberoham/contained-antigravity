@@ -843,6 +843,16 @@ def _tail(path: Path, start: int = 0, limit: int = 2000) -> str:
         return handle.read(limit).decode("utf-8", errors="replace")
 
 
+def _pid_exists(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def _command_line(pid: int) -> str | None:
     """The process's command line, or None when ps cannot report it."""
     try:
@@ -853,14 +863,16 @@ def _command_line(pid: int) -> str | None:
 
 
 def terminate_job_processes(
-    jobs: list[dict[str, Any]], grace: float = STOP_GRACE_SECONDS, unchecked: set[str] | None = None
+    jobs: list[dict[str, Any]],
+    grace: float = STOP_GRACE_SECONDS,
+    unchecked: dict[str, list[int]] | None = None,
 ) -> bool:
     """Stop the workers and agy process groups of several jobs at once,
     escalating to SIGKILL after one shared grace period.
 
     A live process whose command line ps cannot report is not signalled,
-    because it might no longer be the job's; its job id is added to
-    unchecked, so the caller can say the job may still be running.
+    because it might no longer be the job's; its pid is added to
+    unchecked under the job id, so the caller can say it may still be running.
     """
     groups = set()
     containers = [str(job["container"]) for job in jobs if job.get("container")]
@@ -883,8 +895,9 @@ def terminate_job_processes(
                 continue
             command_line = _command_line(int(pid))
             if command_line is None:
-                if unchecked is not None:
-                    unchecked.add(str(job.get("id", "")))
+                # ps also fails for a process that exited after getpgid.
+                if unchecked is not None and _pid_exists(int(pid)):
+                    unchecked.setdefault(str(job.get("id", "")), []).append(int(pid))
             elif str(job.get("id", "")) in command_line:
                 groups.add(group)
     for group in groups:

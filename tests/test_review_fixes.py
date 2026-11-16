@@ -453,6 +453,27 @@ def test_pids_that_no_longer_belong_to_the_job_are_not_signalled(tmp_path):
         bystander.wait()
 
 
+def test_a_process_that_exits_during_the_ps_check_is_not_reported_unchecked(monkeypatch):
+    from agylib import runner
+
+    job_id = "task-20260101-000000-abcd"
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)", job_id], start_new_session=True)
+
+    def exits_meanwhile(pid: int) -> None:
+        proc.kill()
+        proc.wait()
+
+    monkeypatch.setattr(runner, "_command_line", exits_meanwhile)
+    unchecked: dict[str, list[int]] = {}
+    try:
+        terminate_job_processes([{"id": job_id, "pid": proc.pid}], grace=0.5, unchecked=unchecked)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+    assert unchecked == {}
+
+
 # Review parsing --------------------------------------------------------------------------
 
 

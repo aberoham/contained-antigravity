@@ -703,8 +703,9 @@ def cmd_cancel(args: argparse.Namespace) -> int:
     job = resolve_own_job(store, args, lambda r: r.get("status") in ACTIVE_STATUSES)
     if not job:
         raise UsageError("No running agy job from this session to cancel.")
-    if not cancel_job(store, job, "cancelled"):
-        pids = ",".join(str(job[k]) for k in ("pid", "agy_pid") if job.get(k))
+    unchecked = cancel_job(store, job, "cancelled")
+    if unchecked:
+        pids = ",".join(str(pid) for pid in unchecked)
         print(
             f"Cancelled {job['id']}, but ps could not check some of its processes, which may "
             f"still be running. Check with `ps -o pid,args -p {pids}`.",
@@ -715,19 +716,20 @@ def cmd_cancel(args: argparse.Namespace) -> int:
     return 0
 
 
-def cancel_job(store: JobStore, job: dict[str, Any], phase: str, grace: float = 10) -> bool:
-    """Stop a job, and say whether its processes could be checked. It is
-    marked "stopping" (still active, so nothing can resume it) while its
-    processes are stopped, then "cancelled". Process ids are cleared only if
-    no newer worker generation has started meanwhile."""
-    return job["id"] not in stop_jobs([(store, job)], phase, grace)
+def cancel_job(store: JobStore, job: dict[str, Any], phase: str, grace: float = 10) -> list[int]:
+    """Stop a job, and return the pids of its processes that ps could not
+    check (empty when all were checked). It is marked "stopping" (still
+    active, so nothing can resume it) while its processes are stopped, then
+    "cancelled". Process ids are cleared only if no newer worker generation
+    has started meanwhile."""
+    return stop_jobs([(store, job)], phase, grace).get(job["id"], [])
 
 
-def stop_jobs(jobs: list[tuple[JobStore, dict[str, Any]]], phase: str, grace: float) -> set[str]:
+def stop_jobs(jobs: list[tuple[JobStore, dict[str, Any]]], phase: str, grace: float) -> dict[str, list[int]]:
     """Stop several jobs at once, so the total wait is one grace period.
 
-    Returns the ids of jobs whose processes could not be checked, so may
-    still be running; their phase says so.
+    Returns, by job id, the pids that ps could not check, so may still be
+    running; the job's phase says so.
     """
     claimed = []
     for store, job in jobs:
@@ -739,13 +741,13 @@ def stop_jobs(jobs: list[tuple[JobStore, dict[str, Any]]], phase: str, grace: fl
         record = store.update(job["id"], begin)
         if record.get("status") == "stopping":
             claimed.append((store, record))
-    unchecked: set[str] = set()
+    unchecked: dict[str, list[int]] = {}
     terminate_job_processes([record for _, record in claimed], grace=grace, unchecked=unchecked)
     for store, record in claimed:
         generation = record.get("generation")
         ended = phase
         if record["id"] in unchecked:
-            pids = ", ".join(str(record[k]) for k in ("pid", "agy_pid") if record.get(k))
+            pids = ", ".join(str(pid) for pid in unchecked[record["id"]])
             ended = f"{phase}; ps could not check its processes ({pids}), which may still be running"
 
         def finish(current: dict[str, Any], generation: Any = generation, ended: str = ended) -> None:
