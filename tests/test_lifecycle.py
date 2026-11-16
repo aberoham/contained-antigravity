@@ -685,34 +685,21 @@ def test_a_resume_that_fails_in_preparation_hides_the_earlier_patch(companion, t
 
 def test_cancel_says_so_when_ps_cannot_check_the_jobs_processes(companion, tmp_path):
     companion.run("task", NO_SANDBOX, "--background", "--model", "high", "do it", scenario="stall")
-    job = companion.wait_for(lambda j: j.get("agy_pid") and j.get("conversation_id"))
+    job = companion.wait_for(lambda j: j.get("agy_pid"))
     broken = tmp_path / "broken-ps"
     broken.mkdir()
     (broken / "ps").write_text("#!/bin/sh\nexit 1\n")
     (broken / "ps").chmod(0o755)
-    resume = ("task", NO_SANDBOX, "--resume-last", "--background", "--model", "high", "carry on")
     try:
         proc = companion.run("cancel", job["id"], check=False, PATH=f"{broken}{os.pathsep}{companion.env['PATH']}")
         assert proc.returncode == 1
-        assert "ps could not check its processes" in proc.stderr and "could not verify" in proc.stderr
+        assert "ps could not check its processes" in proc.stderr and "may still be running" in proc.stderr
         record = companion.job()
         assert record["status"] == "cancelled" and "may still be running" in record["phase"]
         assert _alive(job["pid"]) and _alive(job["agy_pid"])  # not signalled without a check
-
-        # While they run, the job cannot start another round in the same working copy.
-        refused = companion.run(*resume, scenario="stall", check=False)
-        assert refused.returncode == 2 and "may still be running in its working copy" in refused.stderr
     finally:
         for pid in (job["pid"], job["agy_pid"]):
             try:
                 os.killpg(pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline and (_alive(job["pid"]) or _alive(job["agy_pid"])):
-        time.sleep(0.2)
-
-    # Once they are gone, it can.
-    companion.run(*resume, scenario="stall")
-    assert companion.job()["status"] in ("queued", "running", "resuming")
-    assert "unstopped_pids" not in companion.job()

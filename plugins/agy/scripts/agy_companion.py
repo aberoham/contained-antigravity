@@ -479,17 +479,6 @@ def cmd_task(args: argparse.Namespace) -> int:
     return start_job(args, "task", message, writable=not args.read_only)
 
 
-def _pid_exists(pid: int) -> bool:
-    """Whether any process has this id; needs no ps."""
-    try:
-        os.kill(int(pid), 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
 def continue_job(
     store: JobStore,
     job: dict[str, Any],
@@ -510,14 +499,6 @@ def continue_job(
     def mutate(record: dict[str, Any]) -> None:
         if record.get("status") in ACTIVE_STATUSES:
             raise UsageError(f"Job {job_id} is still running.")
-        alive = [pid for pid in record.get("unstopped_pids") or [] if _pid_exists(pid)]
-        if alive:
-            listed = ", ".join(str(p) for p in alive)
-            raise UsageError(
-                f"Job {job_id}'s earlier processes ({listed}) may still be running in its working copy. "
-                f"Check them with `ps -o pid,args -p {','.join(str(p) for p in alive)}`, stop them, then resume."
-            )
-        record.pop("unstopped_pids", None)
         # Checked under the lock that cleanup and expiry also take.
         worktree = record.get("worktree")
         if not worktree or not Path(worktree).is_dir():
@@ -724,9 +705,8 @@ def cmd_cancel(args: argparse.Namespace) -> int:
         raise UsageError("No running agy job from this session to cancel.")
     if not cancel_job(store, job, "cancelled"):
         print(
-            f"Cancelled {job['id']}, but ps could not check its processes, so it could not verify that "
-            f"they all stopped. Check with `ps -o pid,args -p {job.get('pid')},{job.get('agy_pid')}`; "
-            "the job cannot be resumed while they run.",
+            f"Cancelled {job['id']}, but ps could not check its processes, so they were not stopped "
+            f"and may still be running. Check with `ps -o pid,args -p {job.get('pid')},{job.get('agy_pid')}`.",
             file=sys.stderr,
         )
         return 1
@@ -763,21 +743,15 @@ def stop_jobs(jobs: list[tuple[JobStore, dict[str, Any]]], phase: str, grace: fl
     for store, record in claimed:
         generation = record.get("generation")
         ended = phase
-        unstopped = []
         if record["id"] in unchecked:
-            unstopped = [int(record[k]) for k in ("pid", "agy_pid") if record.get(k)]
-            listed = ", ".join(str(p) for p in unstopped)
-            ended = f"{phase}; ps could not check its processes ({listed}), which may still be running"
+            pids = ", ".join(str(record[k]) for k in ("pid", "agy_pid") if record.get(k))
+            ended = f"{phase}; ps could not check its processes ({pids}), which may still be running"
 
-        def finish(
-            current: dict[str, Any], generation: Any = generation, ended: str = ended, unstopped: list = unstopped
-        ) -> None:
+        def finish(current: dict[str, Any], generation: Any = generation, ended: str = ended) -> None:
             if current.get("generation") == generation:
                 current.update(
                     {"status": "cancelled", "phase": ended, "completed_at": now_iso(), "pid": None, "agy_pid": None}
                 )
-                if unstopped:
-                    current["unstopped_pids"] = unstopped  # checked before the job may run again
 
         store.update(record["id"], finish)
         # A review's copy goes, unless agy may still be running in it.
