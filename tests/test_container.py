@@ -401,6 +401,7 @@ def test_a_container_that_survives_removal_fails_the_job(contained):
     assert job["failure"] == "container"
     assert job["container"] == name  # kept, so the next round or the job's deletion tries again
     assert job["rounds"][0]["usage"]["total_tokens"] == 120  # the turn's usage is still counted
+    assert Path(job["worktree"]).is_dir()  # not deleted while the container may still use it
 
 
 def test_an_export_that_fails_keeps_its_own_error_when_its_container_survives(contained):

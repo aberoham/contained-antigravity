@@ -662,8 +662,13 @@ class JobRunner:
         # A review's or plan's working copy has no further use unless agy is
         # waiting on queued commands, so remove it rather than leave it
         # registered in the user's repository. Tasks keep theirs for
-        # --resume-last and apply.
-        if self.job.get("kind") != "task" and record.get("status") in ("completed", "failed", "cancelled"):
+        # --resume-last and apply. While a container may still be running in
+        # it, the copy stays; pruning or cleanup retries the removal first.
+        if (
+            self.job.get("kind") != "task"
+            and record.get("status") in ("completed", "failed", "cancelled")
+            and not self.leftover_container
+        ):
             gitctx.remove_worktree(self.job["repo_root"], Path(self.job["worktree"]))
         return record
 
