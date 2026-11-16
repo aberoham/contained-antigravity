@@ -681,6 +681,7 @@ def test_a_resume_that_fails_in_preparation_hides_the_earlier_patch(companion, t
     job = companion.job()
     assert job["status"] == "failed" and "could not prepare the working copy" in job["error"]
     assert "changed no files" in companion.run("apply", job["id"], "--check").stdout
+    assert not (companion.job_dir(job["id"]) / "result.json").exists()
 
 
 def test_cancel_says_so_when_ps_cannot_check_the_jobs_processes(companion, tmp_path):
@@ -693,7 +694,7 @@ def test_cancel_says_so_when_ps_cannot_check_the_jobs_processes(companion, tmp_p
     try:
         proc = companion.run("cancel", job["id"], check=False, PATH=f"{broken}{os.pathsep}{companion.env['PATH']}")
         assert proc.returncode == 1
-        assert "ps could not check its processes" in proc.stderr and "may still be running" in proc.stderr
+        assert "ps could not check some of its processes" in proc.stderr and "may still be running" in proc.stderr
         assert f"-p {job['pid']},{job['agy_pid']}`" in proc.stderr
         record = companion.job()
         assert record["status"] == "cancelled" and "may still be running" in record["phase"]

@@ -706,8 +706,8 @@ def cmd_cancel(args: argparse.Namespace) -> int:
     if not cancel_job(store, job, "cancelled"):
         pids = ",".join(str(job[k]) for k in ("pid", "agy_pid") if job.get(k))
         print(
-            f"Cancelled {job['id']}, but ps could not check its processes, so they were not "
-            f"stopped and may still be running. Check with `ps -o pid,args -p {pids}`.",
+            f"Cancelled {job['id']}, but ps could not check some of its processes, which may "
+            f"still be running. Check with `ps -o pid,args -p {pids}`.",
             file=sys.stderr,
         )
         return 1
