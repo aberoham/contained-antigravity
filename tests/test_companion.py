@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from agylib import agybin
 from agylib.runner import _tail
-from conftest import FAKE_AGY, git
+from conftest import COMPANION, FAKE_AGY, git
 
 NO_SANDBOX = "--no-os-sandbox"
 
@@ -295,3 +295,23 @@ def test_stderr_tail_reads_only_after_start(tmp_path):
     path.write_text("earlier round\nthis round\n")
     assert _tail(path, start=len("earlier round\n")) == "this round\n"
     assert _tail(path, limit=6) == "round\n"
+
+
+def test_a_job_id_finds_its_job_from_another_checkout(companion, tmp_path):
+    companion.run("review", NO_SANDBOX, scenario="review")
+    job = companion.job()
+    other = tmp_path / "other-checkout"
+    other.mkdir()
+    git(other, "init", "-q", "-b", "main")
+
+    def run(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, str(COMPANION), *args], cwd=other, env=companion.env, capture_output=True, text=True
+        )
+
+    result = run("result", job["id"])
+    assert result.returncode == 0, result.stderr
+    assert f"Job {job['id']} (review, completed" in result.stdout
+    assert job["id"] in run("status", job["id"][:-2]).stdout  # a unique prefix works too
+    missing = run("result", "review-no-such-job")
+    assert missing.returncode == 2 and "No finished agy job" in missing.stderr

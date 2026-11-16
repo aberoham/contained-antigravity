@@ -289,6 +289,24 @@ def _owned_dir(job_dir: Path, path: Path) -> bool:
     return True
 
 
+def store_holding(reference: str) -> JobStore | None:
+    """The store, in any repository, that holds the one job whose id is or starts with reference.
+
+    Job state is kept per repository, so a job started in one checkout is
+    not in the store of another, such as a second worktree of the same
+    repository. An explicit job id names one job wherever it ran.
+    """
+    job_dirs = [p.parent for p in state_root().glob("*/jobs/*/job.json")]
+    matches = [d for d in job_dirs if d.name == reference] or [d for d in job_dirs if d.name.startswith(reference)]
+    if len(matches) != 1:
+        return None
+    record = read_json(matches[0] / "job.json")
+    if not isinstance(record, dict) or not record.get("repo_root"):
+        return None
+    store = JobStore(record["repo_root"])
+    return store if store.jobs == matches[0].parent else None
+
+
 def expire_idle_jobs(idle_days: int = IDLE_DAYS) -> int:
     """Drop the working copy of every finished job, in any repository, idle for longer than idle_days.
 

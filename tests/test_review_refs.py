@@ -376,6 +376,7 @@ def test_a_running_jobs_earlier_result_is_not_shown_and_a_waited_failure_sets_th
     job = companion.job()
     shown = companion.run("result", job["id"]).stdout
     assert "is still running" in shown and "Next: /agy:result" not in shown, proc.stdout
+    assert f"result {job['id']} --wait-seconds 590" in shown  # the command to wait again
     companion.run("result", job["id"], "--wait-seconds", "60")
     failed = companion.run("task", NO_SANDBOX, "--read-only", "look", scenario="auth", check=False)
     failed_id = failed.stdout.split()[1]

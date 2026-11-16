@@ -39,6 +39,7 @@ from agylib.state import (  # noqa: E402
     record_session_job,
     session_index,
     state_root,
+    store_holding,
     write_json,
 )
 
@@ -348,7 +349,7 @@ def wait_or_report(store: JobStore, job_id: str, args: argparse.Namespace) -> in
     job = store.read(job_id) or {}
     print(
         f"agy job {job_id} is still running.\n{render.job_detail(job)}\n"
-        f"To wait for the result, run from {store.root}:\n{result_command(job_id)}"
+        f"To wait for the result, run:\n{result_command(job_id)}"
     )
     return 0
 
@@ -628,6 +629,16 @@ def _session_filter(args: argparse.Namespace):
     return lambda r: r.get("session_id") in (session, None)
 
 
+def store_for(args: argparse.Namespace) -> JobStore:
+    """This repository's job store, or, for a job id that is not in it, the
+    store of the checkout that ran that job, so a job id works from anywhere."""
+    store = JobStore(os.getcwd())
+    reference = getattr(args, "job", None)
+    if reference and store.resolve(reference) is None:
+        return store_holding(reference) or store
+    return store
+
+
 def resolve_own_job(store: JobStore, args: argparse.Namespace, predicate) -> dict[str, Any] | None:
     """Resolve a job id, or with none given the newest match from this Claude session.
 
@@ -645,7 +656,7 @@ def resolve_own_job(store: JobStore, args: argparse.Namespace, predicate) -> dic
 
 
 def cmd_status(args: argparse.Namespace) -> int:
-    store = JobStore(os.getcwd())
+    store = store_for(args)
     if args.job:
         job = store.resolve(args.job)
         if not job:
@@ -663,7 +674,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 
 def cmd_result(args: argparse.Namespace) -> int:
-    store = JobStore(os.getcwd())
+    store = store_for(args)
     job = resolve_own_job(store, args, None if args.job else (lambda r: r.get("status") in TERMINAL_STATUSES))
     if not job:
         raise UsageError("No finished agy job from this session found.")
@@ -673,7 +684,10 @@ def cmd_result(args: argparse.Namespace) -> int:
         job = store.read(job["id"]) or job
     if job.get("status") in ACTIVE_STATUSES:
         # A resumed job still holds its previous round's result, which must not be read as this round's.
-        print(f"agy job {job['id']} is still running.\n{render.job_detail(job)}")
+        print(
+            f"agy job {job['id']} is still running.\n{render.job_detail(job)}\n"
+            f"To wait for the result, run:\n{result_command(job['id'])}"
+        )
         return 0
     print(render.result_text(job, read_json(store.job_dir(job["id"]) / "result.json")))
     waited_and_failed = args.wait_seconds and job.get("status") == "failed"
@@ -681,7 +695,7 @@ def cmd_result(args: argparse.Namespace) -> int:
 
 
 def cmd_cancel(args: argparse.Namespace) -> int:
-    store = JobStore(os.getcwd())
+    store = store_for(args)
     job = resolve_own_job(store, args, lambda r: r.get("status") in ACTIVE_STATUSES)
     if not job:
         raise UsageError("No running agy job from this session to cancel.")
@@ -725,7 +739,7 @@ def stop_jobs(jobs: list[tuple[JobStore, dict[str, Any]]], phase: str, grace: fl
 
 
 def cmd_apply(args: argparse.Namespace) -> int:
-    store = JobStore(os.getcwd())
+    store = store_for(args)
     job = resolve_own_job(store, args, lambda r: bool(r.get("writable")) and r.get("status") in TERMINAL_STATUSES)
     if not job:
         raise UsageError("No finished agy task with changes from this session found.")
