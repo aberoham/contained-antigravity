@@ -26,7 +26,7 @@ Forwarding rules:
 - Start the job with one `Bash` call. Run every `Bash` call in the foreground; never set `run_in_background`, because a background call returns before the job has a result.
 - A `review`, an `adversarial-review` or a `task --read-only`: run it with `--wait-seconds 590` and set the Bash call's `timeout` to 600000.
   - If the output says the job is still running, run the `result <job> --wait-seconds 590` command printed at its end, again with `timeout` 600000. Repeat until the output no longer says the job is still running. A review often takes 15 minutes or more.
-  - Stop after six of these waits, about an hour, and return the last output as it is.
+  - Stop after six follow-up waits, about an hour, and return the last output as it is.
 - Any other task: small, bounded request and no `--background`/`--wait`: run in the foreground. Large or open-ended: add `--background`, and return its output as it is.
 - `--resume` in the request means add `--resume-last`; `--fresh` means do not. Strip both from the request text. Reviews take neither.
 - Keep `--model` as a flag, and for a task also `--read-only` and `--read-dir <directory>`. A review is always read-only and takes neither. Leave the model unset unless the user named one.

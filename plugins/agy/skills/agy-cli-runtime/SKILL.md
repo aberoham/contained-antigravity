@@ -22,7 +22,7 @@ Rules:
 - A review carries the caller's instructions to agy beside the diff: the pull request's title and description, the things to check, the report wanted. Give them as the last argument or with `--instructions-file <path>`. The file is read on the host, so it may be outside the repository. A request for something outside the copy, such as a comparison with another pull request, comes back listed under next steps as not done.
 - `--head <ref>` reviews that ref against `--base` without checking it out. The job's copy is built from the ref's tree, without the user's uncommitted changes and without the ref's `.agents` directory, so a pull request's own agy hooks do not run. The ref must already be in the user's repository, for example fetched as `refs/remotes/pr/96`.
 - `--background` returns a job id at once. Without it the companion waits up to 100 seconds, or `--wait-seconds <n>`, then reports that the job is still running and prints the `result <job> --wait-seconds 590` command that waits for it.
-- For read-only work (`review`, `adversarial-review`, `task --read-only`) pass `--wait-seconds 590` and give the Bash call `timeout: 600000`. A review rarely finishes inside 100 seconds, and often takes 15 minutes or more, so wait again with the printed `result` command until it finishes.
+- For read-only work (`review`, `adversarial-review`, `task --read-only`) pass `--wait-seconds 590` and give the Bash call `timeout: 600000`. A review rarely finishes inside 100 seconds, and often takes 15 minutes or more, so wait again with the printed `result` command until it finishes, for at most six follow-up waits.
 - A job id works from any directory: `result`, `status`, `cancel` and `apply` find the job in the checkout that ran it.
 
 ## What the job can see
