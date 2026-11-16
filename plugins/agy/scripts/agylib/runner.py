@@ -273,9 +273,10 @@ def _new_log_path(log_dir: Path, turn: int) -> Path:
 
     agy starts its --log-file afresh, so each run is read from the start of
     its own file. A name is never reused: a Docker virtual machine on macOS
-    keeps serving a file the host has renamed or deleted, so a container
-    that opened the old name would write into the old file and the host
-    would never see the new log.
+    briefly keeps serving a file the host has renamed or deleted (under two
+    seconds under Colima on 16 November 2026), and a container that opened
+    the old name in that time would write into the old file, unseen by the
+    host.
     """
     return log_dir / f"agy-{turn}-{secrets.token_hex(4)}.log"
 

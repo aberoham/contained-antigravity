@@ -142,8 +142,9 @@ def test_task_in_a_real_container_reaches_only_the_working_copy(image, scratch):
 
 
 def test_a_stall_logged_after_a_resume_is_seen_in_a_real_container(image, scratch):
-    # The virtual machine's shared filesystem keeps serving a log the host has
-    # moved or deleted, so a resumed run's log is visible only under a new name.
+    # Each resumed run's log must reach the host. The worker's stop sequence
+    # usually outlasts the virtual machine's brief cache of a moved file, so
+    # this also passes with a reused log name; it guards the container path.
     repo = scratch / "repo"
     repo.mkdir()
     git(repo, "init", "-q", "-b", "main")
