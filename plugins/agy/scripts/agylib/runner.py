@@ -13,6 +13,7 @@ import json
 import os
 import queue
 import re
+import secrets
 import signal
 import stat
 import subprocess
@@ -263,47 +264,35 @@ def _read_log_chunk(log_path: Path, offset: int) -> tuple[str, int]:
         return chunk, log.tell()
 
 
-def _set_aside(log_path: Path) -> Path | None:
-    """Move an earlier run's log to the first free agy.log.N and return where it went.
+# agy's log for each run, and the names earlier versions of the worker used.
+LOG_NAME = re.compile(r"agy-\d+-[0-9a-f]+\.log|agy\.log(\.\d+)?")
 
-    The next run's log is read from the start, so a stall line left in place
-    would be seen again as a new stall. A link, a special file or an empty
-    log is removed rather than kept. An existing name is never overwritten,
-    whatever agy left in the directory.
+
+def _new_log_path(log_dir: Path, turn: int) -> Path:
+    """A log name that no run in log_dir has used, for turn (1, 2, ...) of a round.
+
+    agy starts its --log-file afresh, so each run is read from the start of
+    its own file. A name is never reused: a Docker virtual machine on macOS
+    keeps serving a file the host has renamed or deleted, so a container
+    that opened the old name would write into the old file and the host
+    would never see the new log.
+    """
+    return log_dir / f"agy-{turn}-{secrets.token_hex(4)}.log"
+
+
+def _clear_logs(log_dir: Path) -> None:
+    """Delete earlier rounds' logs, so a job keeps only the last round's.
+
+    Deleting on the host is safe only because no later run reuses a name.
     """
     try:
-        try:
-            info = log_path.lstat()
-        except FileNotFoundError:
-            return None
-        if not stat.S_ISREG(info.st_mode) or info.st_size == 0:
-            log_path.unlink()
-            return None
-        n = 1
-        while True:
-            target = log_path.with_name(f"{log_path.name}.{n}")
-            try:
-                os.link(log_path, target, follow_symlinks=False)
-            except FileExistsError:
-                n += 1
-                continue
-            log_path.unlink()
-            return target
-    except OSError as exc:
-        raise RuntimeError(f"could not set aside agy's previous log {log_path}: {exc}") from exc
-
-
-def _clear_logs(log_path: Path) -> None:
-    """Remove agy's log and every set-aside copy, so a job keeps only its last round's logs."""
-    pattern = re.compile(re.escape(log_path.name) + r"\.\d+")
-    try:
-        for path in log_path.parent.iterdir():
-            if path.name == log_path.name or pattern.fullmatch(path.name):
+        for path in log_dir.iterdir():
+            if LOG_NAME.fullmatch(path.name):
                 path.unlink(missing_ok=True)
     except FileNotFoundError:
         return
     except OSError as exc:
-        raise RuntimeError(f"could not remove agy's earlier logs beside {log_path}: {exc}") from exc
+        raise RuntimeError(f"could not delete agy's earlier logs in {log_dir}: {exc}") from exc
 
 
 def _file_size(path: Path) -> int:
@@ -400,11 +389,11 @@ class JobRunner:
         )
 
     @property
-    def log_path(self) -> Path:
-        """agy's log. A container job writes it into the one job subdirectory the container may see."""
+    def log_dir(self) -> Path:
+        """Where agy's logs go. A container job writes them into the one job subdirectory the container may see."""
         if self.job.get("isolation") == "container":
-            return container.job_mount(self.dir) / "agy.log"
-        return self.dir / "agy.log"
+            return container.job_mount(self.dir)
+        return self.dir
 
     def _plan_anchor(self) -> tuple[Path, Path]:
         """(trusted directory, brain directory relative to it) for plan artifacts.
@@ -427,14 +416,14 @@ class JobRunner:
         if name:
             container.remove(name)
 
-    def _command(self, model: str, conversation: str | None) -> list[str]:
+    def _command(self, model: str, conversation: str | None, log_path: Path) -> list[str]:
         binary = Path(self.job["agy_bin"])
         schema = self.job.get("json_schema")
         command = agybin.build_command(
             binary,
             model=model,
             mode=self.job["mode"],
-            log_file=self.log_path,
+            log_file=log_path,
             conversation_id=conversation,
             json_schema=Path(schema) if schema else None,
         )
@@ -474,22 +463,20 @@ class JobRunner:
             container.seed_home(self.dir)  # a fresh home for this round, from the sign-in
         # stderr is appended to across rounds; earlier rounds' errors are not this round's.
         self.stderr_start = _file_size(self.stderr_path)
-        # agy starts its log afresh on every run. Each run's log is set aside
-        # before the next run, and only this round's are kept.
-        _clear_logs(self.log_path)
+        # Each run writes its own log; only this round's are kept.
+        _clear_logs(self.log_dir)
         self.round_logs = []
 
         while True:
             self.step_usage = {}
-            earlier_log = _set_aside(self.log_path)
-            if earlier_log is not None:
-                self.round_logs.append(earlier_log)
+            log_path = _new_log_path(self.log_dir, len(self.round_logs) + 1)
+            self.round_logs.append(log_path)
             outcome = run_turn(
-                self._command(model, conversation),
+                self._command(model, conversation, log_path),
                 cwd=Path(self.job["worktree"]),
                 message=message,
                 events_path=self.dir / "events.ndjson",
-                log_path=self.log_path,
+                log_path=log_path,
                 stderr_path=self.stderr_path,
                 stall_seconds=stall_seconds,
                 deadline=deadline,
@@ -561,7 +548,7 @@ class JobRunner:
         elif result.get("status") != "SUCCESS":
             error = result.get("error") or f"agy finished with status {result.get('status')}"
         if error is not None:
-            log_text = "\n".join(_read_log_chunk(path, 0)[0] for path in [*self.round_logs, self.log_path])
+            log_text = "\n".join(_read_log_chunk(path, 0)[0] for path in self.round_logs)
             failure_class = failure.classify(outcome.kind, stderr_tail, log_text, str(result.get("error") or ""))
             error = failure.ADVICE.get(failure_class, error)
 

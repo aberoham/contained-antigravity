@@ -418,6 +418,21 @@ def main() -> int:
         # request so a test can see what the container can reach. Like agy,
         # it keeps the conversation under $HOME and cannot resume without it.
         conversations = Path.home() / ".gemini" / "antigravity-cli" / "conversations"
+        log_stall = conversations / f"{conversation}.log-stall"
+        if "probe-log-stall" in message.split() or log_stall.is_file():
+            # Every run of this conversation stalls and says so only in its
+            # log, which it starts afresh, as agy does.
+            conversations.mkdir(parents=True, exist_ok=True)
+            (conversations / f"{conversation}.db").write_text("conversation state\n")
+            log_stall.write_text("")
+            if log_file:
+                with open(log_file, "w") as log:
+                    log.write(
+                        "Run: attempt 1 failed (request failed: stream idle timeout (5m0s): "
+                        "context deadline exceeded)\n"
+                    )
+            time.sleep(3600)
+            return 0
         if "--conversation" in argv:
             if not (conversations / f"{conversation}.db").is_file():
                 sys.stderr.write(f'warning: conversation "{conversation}" not found\n')

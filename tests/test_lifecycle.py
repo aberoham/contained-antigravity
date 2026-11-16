@@ -156,6 +156,11 @@ def test_stall_retries_are_capped(companion):
     assert models == ["gemini-4-argon-high"] * 3
 
 
+def _turns(job_dir: Path) -> list[str]:
+    """The turn number in each agy log name in job_dir; every run has its own log."""
+    return sorted(p.name.split("-")[1] for p in job_dir.glob("agy*.log*"))
+
+
 def test_a_stall_in_a_restarted_shorter_log_is_still_seen(companion):
     companion.run(
         "task",
@@ -178,11 +183,7 @@ def test_a_stall_in_a_restarted_shorter_log_is_still_seen(companion):
     assert all(s["reason"].startswith("agy log:") for s in stalls)
     # Only the first run logged the licence error; the round's class still sees it.
     assert job["failure"] == "licence"
-    assert sorted(p.name for p in companion.job_dir(job["id"]).glob("agy.log*")) == [
-        "agy.log",
-        "agy.log.1",
-        "agy.log.2",
-    ]
+    assert _turns(companion.job_dir(job["id"])) == ["1", "2", "3"]
 
 
 def test_a_new_round_keeps_only_its_own_logs(companion, tmp_path):
@@ -196,8 +197,8 @@ def test_a_new_round_keeps_only_its_own_logs(companion, tmp_path):
     companion.run("resume", job["id"], str(results), *options, FAKE_AGY_FIRST_RUN_LOG="round two\n", **stalls)
     job = companion.job()
     assert len(job["rounds"]) == 2
-    logs = sorted(companion.job_dir(job["id"]).glob("agy.log*"))
-    assert [p.name for p in logs] == ["agy.log", "agy.log.1", "agy.log.2"]
+    assert _turns(companion.job_dir(job["id"])) == ["1", "2", "3"]
+    logs = list(companion.job_dir(job["id"]).glob("agy*.log*"))
     text = "".join(p.read_text() for p in logs)
     assert "round two" in text and "round one" not in text
 
@@ -512,34 +513,23 @@ def test_runner_reads_a_stall_logged_just_before_stdout_closes(tmp_path):
     assert outcome.detail.startswith("agy log:")
 
 
-def test_set_aside_never_overwrites_and_drops_what_is_not_a_log(tmp_path):
-    from agylib.runner import _set_aside
-
-    log = tmp_path / "agy.log"
-    log.write_text("first run\n")
-    (tmp_path / "agy.log.1").symlink_to(tmp_path / "missing")  # a dangling link agy could leave
-    assert _set_aside(log) == tmp_path / "agy.log.2"
-    assert not log.exists() and (tmp_path / "agy.log.2").read_text() == "first run\n"
-    assert (tmp_path / "agy.log.1").is_symlink()
-
-    os.mkfifo(log)
-    assert _set_aside(log) is None and not os.path.lexists(log)
-    log.symlink_to(tmp_path / "agy.log.2")
-    assert _set_aside(log) is None and not os.path.lexists(log)
-    assert (tmp_path / "agy.log.2").read_text() == "first run\n"
-    log.write_text("")
-    assert _set_aside(log) is None and not log.exists()
-    assert _set_aside(log) is None
-
-
 def test_clear_logs_removes_only_agy_logs(tmp_path):
     from agylib.runner import _clear_logs
 
-    for name in ("agy.log", "agy.log.1", "agy.log.12", "agy.log.txt", "agy.stderr.txt"):
+    names = ("agy-1-0a1b2c3d.log", "agy.log", "agy.log.12", "agy-x.log", "agy.log.txt", "agy.stderr.txt")
+    for name in names:
         (tmp_path / name).write_text("x")
-    _clear_logs(tmp_path / "agy.log")
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["agy.log.txt", "agy.stderr.txt"]
-    _clear_logs(tmp_path / "missing-dir" / "agy.log")
+    _clear_logs(tmp_path)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["agy-x.log", "agy.log.txt", "agy.stderr.txt"]
+    _clear_logs(tmp_path / "missing-dir")
+
+
+def test_every_run_gets_a_log_name_not_used_before(tmp_path):
+    from agylib.runner import LOG_NAME, _new_log_path
+
+    paths = {_new_log_path(tmp_path, 1) for _ in range(50)}
+    assert len(paths) == 50
+    assert all(p.parent == tmp_path and LOG_NAME.fullmatch(p.name) for p in paths)
 
 
 def test_log_reader_restarts_a_log_that_shrank(tmp_path):
