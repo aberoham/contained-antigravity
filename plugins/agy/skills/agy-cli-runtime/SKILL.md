@@ -11,9 +11,11 @@ Use only inside the `agy:agy-rescue` subagent.
 
 Helpers, all through `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agy_companion.py"`:
 
-- `task [--background] [--model high|medium|low] [--read-only] [--read-dir <directory>] [--resume-last] "<request>"`
-- `review [--base <ref>] [--head <ref>] [--scope auto|working-tree|branch] [--model high|medium|low] [--instructions-file <path>] ["<instructions>"]`
+- `task [--background] [--model <level|family|family-level|model ID>] [--read-only] [--read-dir <directory>] [--resume-last] "<request>"`
+- `review [--base <ref>] [--head <ref>] [--scope auto|working-tree|branch] [--model <level|family|family-level|model ID>] [--instructions-file <path>] ["<instructions>"]`
 - `adversarial-review` with the same flags and instructions as `review`
+
+`--caller-model "<Claude model ID>"` is accepted by all three; pass it on, quoted, when the request carries it. IDs such as `claude-opus-5-5[1m]` contain brackets that zsh would otherwise expand.
 
 Rules:
 

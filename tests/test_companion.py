@@ -30,7 +30,7 @@ def test_review_runs_in_worktree_and_parses_structured_output(companion, repo):
     assert call["argv"][-1] == "--print="
     assert "-p" not in call["argv"]
     assert "--dangerously-skip-permissions" not in call["argv"]
-    assert call["argv"][call["argv"].index("--model") + 1] == "gemini-4-argon-low"
+    assert call["argv"][call["argv"].index("--model") + 1] == "gemini-4-neon-low"
     assert "--json-schema" in call["argv"]
     assert "--mode" not in call["argv"]
     message = json.loads(call["stdin"])
@@ -97,12 +97,12 @@ def test_agy_permission_denials_are_queued(companion):
 @pytest.mark.parametrize("scenario", ["stall", "stall-log"])
 def test_stall_resumes_same_conversation_on_same_model(companion, scenario):
     proc = companion.run("task", NO_SANDBOX, "--model", "high", "--stall-seconds", "3", "do it", scenario=scenario)
-    assert "reply from gemini-4-argon-high" in proc.stdout
+    assert "reply from gemini-4-neon-high" in proc.stdout
     job = companion.job()
     assert job["status"] == "completed"
     (stall,) = job["rounds"][0]["stalls"]
-    assert stall["model"] == "gemini-4-argon-high"
-    assert stall["resumed_on"] == "gemini-4-argon-high"
+    assert stall["model"] == "gemini-4-neon-high"
+    assert stall["resumed_on"] == "gemini-4-neon-high"
     if scenario == "stall-log":
         assert "stream idle timeout" in stall["reason"]
     first, second = companion.agy_calls()
@@ -110,8 +110,8 @@ def test_stall_resumes_same_conversation_on_same_model(companion, scenario):
         first["argv"][first["argv"].index("--conversation") + 1] if "--conversation" in first["argv"] else None
     )
     assert conversation is None
-    assert second["argv"][second["argv"].index("--model") + 1] == "gemini-4-argon-high"
-    assert job["rounds"][0]["final_model"] == "gemini-4-argon-high"
+    assert second["argv"][second["argv"].index("--model") + 1] == "gemini-4-neon-high"
+    assert job["rounds"][0]["final_model"] == "gemini-4-neon-high"
     assert second["argv"][second["argv"].index("--conversation") + 1] == job["conversation_id"]
 
 

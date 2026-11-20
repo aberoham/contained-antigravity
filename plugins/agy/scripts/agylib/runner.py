@@ -442,7 +442,7 @@ class JobRunner:
         if name and not container.remove(name):
             self.leftover_container = name
 
-    def _command(self, model: str, conversation: str | None, log_path: Path) -> list[str]:
+    def _command(self, model: str | None, conversation: str | None, log_path: Path) -> list[str]:
         binary = Path(self.job["agy_bin"])
         schema = self.job.get("json_schema")
         command = agybin.build_command(
@@ -468,7 +468,7 @@ class JobRunner:
 
     def run(self) -> dict[str, Any]:
         message = (self.dir / "next-message.md").read_text(encoding="utf-8")
-        model = self.job["model"]
+        model = self.job.get("model")
         conversation = self.job.get("conversation_id")
         stall_seconds = float(self.job.get("stall_seconds", DEFAULT_STALL_SECONDS))
         max_resumes = int(self.job.get("max_stall_resumes", DEFAULT_MAX_STALL_RESUMES))
@@ -531,7 +531,7 @@ class JobRunner:
                 )
                 update = {
                     "status": "resuming",
-                    "phase": f"stalled on {model}; resuming on the same model",
+                    "phase": f"stalled on {model or 'agy default'}; resuming on the same model",
                     "current_stalls": list(round_record["stalls"]),
                 }
                 self.store.update(self.job_id, lambda r, u=update: r.update(u))

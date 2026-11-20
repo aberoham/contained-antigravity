@@ -1,7 +1,7 @@
 ---
 # Adapted from openai/codex-plugin-cc (Apache-2.0) and modified for agy. See NOTICE.
 name: gemini-prompting
-description: Guidance for turning a user's request into a clear prompt for agy (Gemini 4 Argon) in the agy-rescue subagent
+description: Guidance for turning a user's request into a clear prompt for agy (Gemini 4) in the agy-rescue subagent
 user-invocable: false
 ---
 

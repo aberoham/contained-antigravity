@@ -146,6 +146,37 @@ on 24 October 2026 with agy 1.4.7, unless marked otherwise.
   plugin's data directory; the job state then lands there. Harmless, but
   `/agy:status` from a plain terminal will not see those jobs.
 
+## Model timings (20 November 2026)
+
+One seat, Gemini Enterprise sign-in, agy 1.5.13, wall-clock seconds. Each
+new figure is one run, so the order matters more than the seconds.
+
+| Model | Short question, no tools | Review of one 150-line commit | Earlier reviews: median (count) |
+| --- | --- | --- | --- |
+| hydrogen-low / medium / high | 17 / 18 / 26 | – / 55 / 105 | none |
+| neon-low / medium / high | 19 / 22 / 34 | – / 103 / 298 | none |
+| argon-low / medium / high | 20 / 20 / 47 | – / 65 / – | 120 (1) / 80 (19) / 309 (1) |
+| carbon-low / medium / high | 53 / 64 / 194 | not run | 292 (8) / 513 (4) / 619 (6) |
+
+- The short question was a five-sentence answer in plan mode, all models
+  in parallel. The review was `review --base HEAD~1 --head HEAD` on commit
+  32170a8, host mode, five models in parallel.
+- All five reviews approved the commit with no findings, so the run says
+  nothing about review quality.
+- Earlier reviews are the plugin's own job records on this Mac, over
+  different diffs.
+- `gemini-4-neon-xhigh` is listed by `agy models` but failed at once with
+  `INVALID_ARGUMENT` on `generation_config.thinking_config.thinking_level`,
+  "XHIGH". It failed the same way after Neon was switched on in the Gemini
+  Enterprise app's feature controls, so on this seat (Gemini Enterprise
+  sign-in, agy 1.5.13) the API does not accept that level.
+- Without `--model`, agy's `init` event has no `model` field, and no later
+  event names the model. A `--conversation` resume without `--model`
+  continues the conversation (it recalled its earlier reply), so a stall
+  resume needs no model.
+- `agy models` lists no XHigh level for Hydrogen on this seat, although
+  Google's docs describe one.
+
 ## Container mode, verified live (24 October 2026)
 
 - Colima (virtiofs) shares the home directory and not `/var/folders`: a

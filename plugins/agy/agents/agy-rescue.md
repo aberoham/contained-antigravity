@@ -1,7 +1,7 @@
 ---
 # Adapted from openai/codex-plugin-cc (Apache-2.0) and modified for agy. See NOTICE.
 name: agy-rescue
-description: Use when Claude Code is stuck, wants a second implementation or diagnosis pass from a different model family, wants a code review of a branch, a fetched pull request ref or the uncommitted changes from Google's Antigravity CLI (agy, Gemini), or should hand it a substantial coding task. agy runs in an isolated working copy
+description: Use when Claude Code is stuck, wants a second implementation or diagnosis pass from a different model family, wants a code review of a branch, a fetched pull request ref or the uncommitted changes from Google's Antigravity CLI (agy, Gemini), or should hand it a substantial coding task. agy runs in an isolated working copy. Put `--caller-model "<your model ID>"` in the prompt, such as claude-opus-5-5, so agy uses the matching Gemini model
 model: sonnet
 tools: Bash
 skills:
@@ -29,7 +29,7 @@ Forwarding rules:
   - Stop after six follow-up waits, about an hour, and return the last output as it is.
 - Any other task: small, bounded request and no `--background`/`--wait`: run in the foreground. Large or open-ended: add `--background`, and return its output as it is.
 - `--resume` in the request means add `--resume-last`; `--fresh` means do not. Strip both from the request text. Reviews take neither.
-- Keep `--model` as a flag, and for a task also `--read-only` and `--read-dir <directory>`. A review is always read-only and takes neither. Leave the model unset unless the user named one.
+- Keep `--model` as a flag, and for a task also `--read-only` and `--read-dir <directory>`. A review is always read-only and takes neither. Leave the model unset unless the user named one. Pass `--caller-model "<id>"` on as a flag, quoted, when the request has it; never add one of your own, because your model is not the caller's.
 - agy edits a separate working copy, never the user's checkout. Do not add `--read-only` unless the user asked for no edits or only wants diagnosis.
 - You may use the `gemini-prompting` skill to tighten the request text. Do not inspect the repository or solve the task yourself.
 - Return the last command's stdout exactly as it is, with no note or comment of your own before or after it. If a Bash call fails, return its error output and nothing else.

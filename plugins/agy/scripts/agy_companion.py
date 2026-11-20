@@ -142,7 +142,6 @@ def setup_report() -> dict[str, Any]:
         "permission_allow_rules": len((settings.get("permissions") or {}).get("allow") or []),
         "os_sandbox": sandbox.available(),
         "python": sys.version.split()[0],
-        "default_model": agybin.DEFAULT_MODEL,
     }
     signed_in, detail = agybin.sign_in_check(binary) if binary else (None, "agy not found")
     report["signed_in"] = signed_in
@@ -151,6 +150,7 @@ def setup_report() -> dict[str, Any]:
     report.update(container.report())
     report["container_unavailable"] = container.unavailable_reason(report)
     report["isolation"] = "host" if report["container_unavailable"] else "container"
+    report["default_model"] = agybin.settings_model(model_settings(report["isolation"]))
     problems = []
     if not binary:
         problems.append("agy is not installed or not on PATH. Install it, or set AGY_BIN to its path.")
@@ -165,6 +165,12 @@ def setup_report() -> dict[str, Any]:
     report["ready"] = not problems
     report["problems"] = problems
     return report
+
+
+def model_settings(isolation: str) -> dict[str, Any]:
+    """The agy settings whose model a job falls back to: the sign-in a container job copies, else the host's."""
+    source = container.signin_source() if isolation == "container" else None
+    return agybin.read_settings(source[1] if source else None)
 
 
 def sign_in_label(report: dict[str, Any]) -> str:
@@ -186,7 +192,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
     lines.append(f"Signed in: {sign_in_label(report)}")
     lines.append(f"Google Cloud project: {report['gcp_project'] or '-'} ({report['gcp_location'] or '-'})")
     lines.append(f"macOS write sandbox: {'available' if report['os_sandbox'] else 'not available'}")
-    lines.append(f"Default model: {report['default_model']}")
+    lines.append(f"Default model: {report['default_model'] or 'agy chooses'} (Claude callers map to their own)")
     lines.append(f"Isolation: {report['isolation']}")
     reason = report["container_unavailable"]
     if reason:
@@ -230,7 +236,7 @@ def start_job(
         "kind": kind,
         "status": "queued",
         "phase": "starting",
-        "model": agybin.resolve_model(args.model),
+        "model": agybin.resolve_model(args.model, caller=args.caller_model, settings=model_settings(isolation)),
         "mode": KIND_MODES[kind],
         "writable": writable,
         "worktree": str(worktree),
@@ -516,7 +522,12 @@ def continue_job(
             }
         )
         if getattr(args, "model", None):
-            record["model"] = agybin.resolve_model(args.model)
+            record["model"] = agybin.resolve_model(
+                args.model,
+                caller=getattr(args, "caller_model", None),
+                settings=model_settings(record.get("isolation") or "host"),
+                current=record.get("model"),
+            )
         if read_only is not None:
             record["read_only_round"] = read_only
         record["generation"] = int(record.get("generation") or 1) + 1
@@ -870,7 +881,12 @@ def cmd_session_end(args: argparse.Namespace) -> int:
 
 
 def add_run_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--model", help="high, medium, low, or a full agy model name")
+    parser.add_argument(
+        "--model", help="a level (low, medium, high, xhigh), a family (neon), both (neon-high), or a full model ID"
+    )
+    parser.add_argument(
+        "--caller-model", help="the calling Claude model's ID; picks a new job's Gemini model when --model is absent"
+    )
     parser.add_argument("--background", action="store_true", help="return at once with the job id")
     parser.add_argument("--wait", action="store_true", help="wait for the result (the default)")
     parser.add_argument("--wait-seconds", type=int, help=argparse.SUPPRESS)
