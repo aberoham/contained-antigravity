@@ -137,8 +137,9 @@ Placeholders are in capitals.
   and reports suggest this bills Agent Platform usage rather than a seat; we
   have not confirmed it. The plugin does not set `AGY_ADC_AUTH`.
 - **Model availability depends on the licence.** Run `agy models` to see what
-  your seat offers. The plugin's default is `gemini-4-argon-medium`; pass
-  `--model` for another.
+  your seat offers. Without `--model`, a new job
+  gets the model mapped to the calling Claude model, else the model in agy's
+  settings, else agy's own choice. A resumed job keeps its model.
 
 ## Not confirmed
 

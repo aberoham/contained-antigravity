@@ -21,12 +21,29 @@ MIN_VERSION = (1, 1, 12)  # first release where print mode honours --model and -
 # build_command refuses it, so a host-mode command can never carry it.
 SKIP_PERMISSIONS_FLAGS = ("--dangerously-skip-permissions",)
 
-MODEL_ALIASES = {
-    "high": "gemini-4-argon-high",
-    "medium": "gemini-4-argon-medium",
-    "low": "gemini-4-argon-low",
+GEMINI_GENERATION = "gemini-4"
+LEVELS = ("low", "medium", "high", "xhigh")
+DEFAULT_LEVEL = "medium"
+# Antigravity's default family for new users, used when a bare level such as
+# `--model high` has no model with a level to take its family from.
+FALLBACK_FAMILY = "neon"
+# The plugin's choice of Gemini model for each Claude model, from the
+# Artificial Analysis Intelligence Index and measured review times. The
+# README's "Which Gemini model to pick" section gives the reasoning.
+CALLER_MODELS = {
+    "haiku": "gemini-4-hydrogen-medium",
+    "sonnet": "gemini-4-hydrogen-high",
+    "opus": "gemini-4-neon-medium",
+    "fable": "gemini-4-neon-high",
 }
-DEFAULT_MODEL = "gemini-4-argon-medium"
+# agy's settings.json stores the model by display name, such as "Gemini 4 Neon (Medium)".
+SETTINGS_MODEL = re.compile(r"^Gemini (\d[\d.]*) ([A-Za-z ]+?) \((Low|Medium|High|XHigh)\)$")
+_LEVEL_GROUP = "|".join(LEVELS)
+# A model ID that ends in a thinking level, such as gemini-3.1-pro-low.
+LEVELLED_MODEL = re.compile(rf"^(gemini-[\w.-]+)-(?:{_LEVEL_GROUP})$")
+# A family with an optional level, such as neon or neon-high.
+SHORTHAND = re.compile(rf"^([a-z]+)(?:-({_LEVEL_GROUP}))?$")
+CLAUDE_MODEL = re.compile(r"^claude-(haiku|sonnet|opus|fable)-")
 
 STALL_LOG_PATTERN = re.compile(r"stream idle timeout")
 
@@ -73,16 +90,58 @@ def agy_version(binary: Path) -> tuple[int, ...] | None:
     return parse_version(out.stdout + out.stderr)
 
 
-def resolve_model(name: str | None) -> str:
+def settings_model(settings: dict[str, Any]) -> str | None:
+    """The model ID for the display name in agy's settings, or None when there is none or it does not parse."""
+    match = SETTINGS_MODEL.match(str(settings.get("model") or ""))
+    if not match:
+        return None
+    version, family, level = match.groups()
+    return f"gemini-{version}-{family.lower().replace(' ', '-')}-{level.lower()}"
+
+
+def caller_model(caller: str | None) -> str | None:
+    """The Gemini model mapped to a Claude model ID such as claude-opus-5-5, or None for any other caller."""
+    match = CLAUDE_MODEL.match((caller or "").strip().lower())
+    return CALLER_MODELS[match.group(1)] if match else None
+
+
+def resolve_model(
+    name: str | None,
+    *,
+    caller: str | None = None,
+    settings: dict[str, Any] | None = None,
+    current: str | None = None,
+) -> str | None:
+    """Turn a --model value into an agy model ID, or None to let agy choose.
+
+    Without a name, the calling Claude model decides through CALLER_MODELS,
+    then the model in agy's settings; None means agy picks its own default.
+    A bare level (`high`) swaps the level of `current` (a resumed job's
+    model) when there is one, otherwise of that default, keeping its family
+    and generation; it falls back to Neon when that model has no level. A family (`hydrogen`) or a
+    family and level (`neon-high`) becomes a Gemini 4 ID, which agy rejects
+    if the family does not exist. Anything else, including a full `gemini-`
+    ID, passes through unchanged.
+    """
+    base = caller_model(caller) or settings_model(settings or {})
     if not name:
-        return DEFAULT_MODEL
-    return MODEL_ALIASES.get(name, name)
+        return base
+    lowered = name.lower()  # agy shows levels capitalised: High, XHigh
+    if lowered in LEVELS:
+        levelled = LEVELLED_MODEL.match(current or base or "")
+        prefix = levelled.group(1) if levelled else f"{GEMINI_GENERATION}-{FALLBACK_FAMILY}"
+        return f"{prefix}-{lowered}"
+    shorthand = None if lowered.startswith("gemini-") else SHORTHAND.match(lowered)
+    if shorthand:
+        family, level = shorthand.groups()
+        return f"{GEMINI_GENERATION}-{family}-{level or DEFAULT_LEVEL}"
+    return name
 
 
 def build_command(
     binary: Path,
     *,
-    model: str,
+    model: str | None,
     mode: str | None,
     log_file: Path,
     conversation_id: str | None = None,
@@ -94,8 +153,7 @@ def build_command(
         "stream-json",
         "--output-format",
         "stream-json",
-        "--model",
-        model,
+        *(["--model", model] if model else []),
         "--log-file",
         str(log_file),
         "--print-timeout",
@@ -119,9 +177,10 @@ def user_message(text: str) -> str:
     return json.dumps({"event": "user", "message": {"role": "user", "content": text}}) + "\n"
 
 
-def read_settings() -> dict[str, Any]:
+def read_settings(directory: Path | None = None) -> dict[str, Any]:
+    """agy's settings.json from `directory`, by default the host's agy home; {} when unreadable."""
     try:
-        with open(agy_home() / "settings.json", encoding="utf-8") as handle:
+        with open((directory or agy_home()) / "settings.json", encoding="utf-8") as handle:
             value = json.load(handle)
     except (OSError, ValueError):
         return {}
@@ -161,14 +220,22 @@ def sign_in_check(binary: Path) -> tuple[bool | None, str]:
         return None, "`agy models` did not answer within 30 seconds"
     except OSError as exc:
         return None, f"could not run `agy models`: {exc}"
-    lines = [line.strip() for line in (proc.stdout + proc.stderr).splitlines()]
+    return judge_models_listing(proc.returncode, proc.stdout + proc.stderr)
+
+
+def judge_models_listing(returncode: int, output: str) -> tuple[bool | None, str]:
+    """Decide from `agy models` output whether agy is signed in, as sign_in_check describes.
+
+    containers/signin.sh calls this too, so both checks apply one rule.
+    """
+    lines = [line.strip() for line in output.splitlines()]
     lines = [line for line in lines if line and line != "Fetching available models..."]
     rows = [line for line in lines if MODEL_ROW.match(line)]
     other = [line for line in lines if not MODEL_ROW.match(line)]
     if any("please sign in" in line.lower() for line in other):
         return False, next(line for line in other if "please sign in" in line.lower())
-    if rows and not other and proc.returncode == 0:
+    if rows and not other and returncode == 0:
         return True, "agy listed its models"
     if other:
         return None, other[0][:200]
-    return None, f"`agy models` printed no models (exit {proc.returncode})"
+    return None, f"`agy models` printed no models (exit {returncode})"

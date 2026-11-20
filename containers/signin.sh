@@ -118,8 +118,7 @@ docker run --rm -it --user "$(id -u):$(id -g)" -e "HOME=${home}" -v "${home}:${h
 # settings into a fresh home, then list models in a new container. A missing
 # or corrupted token gets "Please sign in" instead, a reclaimed licence gets
 # 403 GEMINI_ENTERPRISE_LICENSE_NOT_VALID, and no prompt is sent. agy exits 0
-# either way, so read the output. The plugin's default models are Gemini 4
-# Argon, so the list must include them.
+# either way, so read the output. A working sign-in lists Gemini models.
 token="${settings_dir}/antigravity-oauth-token"
 if [[ ! -s "${token}" ]]; then
     echo "Sign-in failed: agy wrote no token to ${settings_dir}. Run ${0} again." >&2
@@ -157,10 +156,19 @@ trap cleanup EXIT
 mkdir -p "${check_home}/.gemini/antigravity-cli"
 cp "${token}" "${settings_dir}/settings.json" "${check_home}/.gemini/antigravity-cli/"
 echo "Checking the sign-in in a fresh container..."
+status=0
 reply="$(docker run --rm --init --user "$(id -u):$(id -g)" -e "HOME=${check_home}" -v "${check_home}:${check_home}" -w "${check_home}" \
-    "${image}" models </dev/null 2>&1 || true)"
-if [[ "${reply}" != *Error:* ]] && grep -q '^gemini-4-argon-' <<<"${reply}"; then
-    echo "Sign-in works: a fresh container listed the Gemini 4 Argon models with the copied token."
+    "${image}" models </dev/null 2>&1)" || status=$?
+# The companion's own sign-in rule decides: a zero exit, at least one model
+# row and no other output.
+if printf '%s' "${reply}" | /usr/bin/python3 -c '
+import sys
+sys.path.insert(0, sys.argv[1] + "/plugins/agy/scripts")
+from agylib import agybin
+signed_in, _ = agybin.judge_models_listing(int(sys.argv[2]), sys.stdin.read())
+sys.exit(0 if signed_in else 1)
+' "${here}" "${status}"; then
+    echo "Sign-in works: a fresh container listed the Gemini models with the copied token."
 else
     echo "Sign-in check failed. agy said:" >&2
     printf '%s\n' "${reply}" | tail -n 20 >&2

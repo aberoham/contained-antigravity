@@ -8,7 +8,7 @@
 # fake agy in tests/ instead.
 #
 #   scripts/live-smoke.sh                         # print what would run
-#   scripts/live-smoke.sh --apply                 # run it (model: gemini-4-argon-low)
+#   scripts/live-smoke.sh --apply                 # run it (model: the low level of the default family)
 #   scripts/live-smoke.sh --apply --with-claude   # also drive two commands through claude --plugin-dir
 #
 # Environment: AGY_SMOKE_MODEL (default low), AGY_SMOKE_ISOLATION (container,
@@ -64,7 +64,7 @@ if ! ${apply}; then
     echo "Dry run. With --apply this runs, on model ${model} with isolation ${isolation}:"
     printf '  - %s\n' "${steps[@]}"
     if ${with_claude}; then
-        echo "  - claude --plugin-dir: /agy:setup and /agy:review --wait"
+        echo "  - claude --plugin-dir: /agy:setup, and /agy:review --wait from Sonnet, which must map to gemini-4-hydrogen-high"
     fi
     echo "Each step calls the real agy and uses your Gemini licence."
     exit 0
@@ -341,15 +341,18 @@ if ${with_claude}; then
         reviews_before="$(ls -d "${AGY_COMPANION_STATE_DIR}"/*/jobs/review-* 2>/dev/null | wc -l | tr -d ' ')"
         start=${SECONDS}
         rc=0
-        out="$(cd "${repo}" && "${claude_bin}" -p "/agy:review --wait --model ${model}" --plugin-dir "${plugin}" </dev/null 2>&1)" || rc=$?
+        # No --model: a Sonnet session must pass its own model ID, which maps to Hydrogen High.
+        out="$(cd "${repo}" && "${claude_bin}" -p "/agy:review --wait" --model sonnet --plugin-dir "${plugin}" </dev/null 2>&1)" || rc=$?
         reviews_after="$(ls -d "${AGY_COMPANION_STATE_DIR}"/*/jobs/review-* 2>/dev/null | wc -l | tr -d ' ')"
-        # Claude must actually have started a review job that completed.
+        review_job="$(newest_job review)"
+        # Claude must actually have started a review job that completed, on the mapped model.
         if ((rc == 0)) && ((reviews_after > reviews_before)) \
-            && [[ "$(field "$(newest_job review)" status)" == "completed" ]] \
+            && [[ "$(field "${review_job}" status)" == "completed" ]] \
+            && [[ "$(field "${review_job}" model)" == "gemini-4-hydrogen-high" ]] \
             && [[ "$(checkout_state)" == "${before}" ]]; then
-            pass "claude /agy:review" $((SECONDS - start))
+            pass "claude /agy:review (Sonnet caller, gemini-4-hydrogen-high)" $((SECONDS - start))
         else
-            fail "claude /agy:review" "exit ${rc}, review jobs ${reviews_before} -> ${reviews_after}: ${out:0:300}"
+            fail "claude /agy:review" "exit ${rc}, review jobs ${reviews_before} -> ${reviews_after}, model $(field "${review_job}" model): ${out:0:300}"
         fi
     fi
 fi

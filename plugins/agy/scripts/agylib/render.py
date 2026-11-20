@@ -48,7 +48,7 @@ def status_table(jobs: list[dict[str, Any]]) -> str:
                 kind=job.get("kind"),
                 status=job.get("status"),
                 phase=str(job.get("phase") or "").replace("|", "/"),
-                model=job.get("model"),
+                model=model_label(job.get("model")),
                 isolation=job.get("isolation") or "host",
                 elapsed=elapsed(job),
                 rounds=len(job.get("rounds") or []),
@@ -57,6 +57,11 @@ def status_table(jobs: list[dict[str, Any]]) -> str:
             )
         )
     return header + "\n".join(rows)
+
+
+def model_label(model: str | None) -> str:
+    """A job runs without a model ID when agy chose; agy does not report which."""
+    return model or "agy default"
 
 
 def rounds_table(job: dict[str, Any]) -> str:
@@ -71,7 +76,7 @@ def rounds_table(job: dict[str, Any]) -> str:
         usage = item.get("usage") or {}
         wait = item.get("approval_wait_s")
         lines.append(
-            f"| {index} | {item.get('kind')} | {item.get('final_model')} | {item.get('duration_s')} s | "
+            f"| {index} | {item.get('kind')} | {model_label(item.get('final_model'))} | {item.get('duration_s')} s | "
             f"{'-' if wait is None else str(wait) + ' s'} | {usage.get('total_tokens', '-')} | "
             f"{len(item.get('stalls') or [])} | {len(item.get('queued_commands') or [])} |"
         )
@@ -83,7 +88,7 @@ def job_detail(job: dict[str, Any]) -> str:
         f"Job: {job.get('id')}",
         f"Kind: {job.get('kind')}",
         f"Status: {job.get('status')} ({job.get('phase')})",
-        f"Model: {job.get('model')}",
+        f"Model: {model_label(job.get('model'))}",
         f"Isolation: {job.get('isolation') or 'host'}",
         f"Elapsed: {elapsed(job)}",
         f"Conversation: {job.get('conversation_id') or '-'}",
@@ -97,8 +102,8 @@ def job_detail(job: dict[str, Any]) -> str:
         )
     for stall in job.get("current_stalls") or []:
         lines.append(
-            f"Stall: {stall.get('model')} at {stall.get('at')}: {stall.get('reason')}; "
-            f"resumed on {stall.get('resumed_on')}"
+            f"Stall: {model_label(stall.get('model'))} at {stall.get('at')}: {stall.get('reason')}; "
+            f"resumed on {model_label(stall.get('resumed_on'))}"
         )
     if job.get("error"):
         lines.append(f"Error: {job['error']}")
@@ -188,7 +193,7 @@ def _relative_reference(match: re.Match[str], root: str) -> str:
 
 
 def _result_text(job: dict[str, Any], stored: dict[str, Any] | None) -> str:
-    head = f"Job {job.get('id')} ({job.get('kind')}, {job.get('status')}, model {job.get('model')})"
+    head = f"Job {job.get('id')} ({job.get('kind')}, {job.get('status')}, model {model_label(job.get('model'))})"
     if not stored:
         if not job.get("error"):
             return f"{head}\nNo result yet.\n{next_steps(job)}"

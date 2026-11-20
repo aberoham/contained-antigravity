@@ -154,7 +154,7 @@ def test_stall_retries_are_capped(companion):
     assert len(job["rounds"][0]["stalls"]) == 2
     assert "no agy progress" in proc.stdout
     models = [call["argv"][call["argv"].index("--model") + 1] for call in companion.agy_calls()]
-    assert models == ["gemini-4-argon-high"] * 3
+    assert models == ["gemini-4-neon-high"] * 3
 
 
 def _turns(job_dir: Path) -> list[str]:

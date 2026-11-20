@@ -1,7 +1,7 @@
 # agy plugin for Claude Code
 
 Hand work from a Claude Code session to Google's Antigravity CLI (`agy`),
-which runs Gemini 4 Argon. The plugin runs code reviews, adversarial reviews,
+which runs Gemini 4. The plugin runs code reviews, adversarial reviews,
 implementation plans and rescue tasks as tracked background jobs. Each job
 works on its own copy of your repository, so agy never edits your checkout.
 
@@ -69,9 +69,19 @@ Then run `/agy:setup`.
 | `/agy:cancel [job]` | Stops a running job. |
 | `/agy:setup` | Checks that agy is installed and signed in. |
 
-Most commands accept `--model high|medium|low` (Gemini 4 Argon High, Medium or
-Low), `--background` and `--isolation container|host`. The default model is
-Medium. The default isolation is the container when Docker, the image and a
+Most commands accept `--model`, `--background` and `--isolation
+container|host`. `--model` takes a thinking level (`low`, `medium`, `high`,
+`xhigh`), a family (`neon`), both (`neon-high`), or a full ID from `agy
+models`. Without it, the Gemini model follows the calling Claude model:
+Haiku gets `gemini-4-hydrogen-medium`, Sonnet `gemini-4-hydrogen-high`, Opus
+`gemini-4-neon-medium` and Fable `gemini-4-neon-high`. The commands pass the
+caller's model ID as `--caller-model`. If there is no caller model, a new
+job uses the model chosen in agy's settings (the container sign-in's
+settings for a container job), and with none set agy picks. A resumed job
+keeps its model. A level on its own keeps the family of that model, or uses
+Neon. Gemini 3.x and other models work by full ID. The
+[main README](../../README.md#which-gemini-model-to-pick) explains the
+mapping. The default isolation is the container when Docker, the image and a
 sign-in file are all present, otherwise the host; `/agy:setup` says
 which, and `/agy:status` shows it per job.
 

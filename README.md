@@ -1,7 +1,7 @@
 # Contained Antigravity for Claude Code
 
 A Claude Code plugin that hands work to Google's Antigravity CLI (`agy`,
-Gemini 4 Argon): code reviews, adversarial reviews, implementation plans and
+Gemini 4): code reviews, adversarial reviews, implementation plans and
 debugging or implementation tasks. Each one runs as a tracked background job
 on its own copy of your repository, inside a container when Docker is
 available. agy never edits your checkout and never runs with `--yolo` on your
@@ -79,8 +79,13 @@ claims before relaying them.
 
 Common options:
 
-- `--model high|medium|low` picks Gemini 4 Argon High, Medium or Low. The
-  default is Medium.
+- `--model` picks the Gemini model: a thinking level (`low`, `medium`,
+  `high`, `xhigh`), a family (`neon`), both (`neon-high`), or a full ID from
+  `agy models`. Without it, a new job gets the Gemini model mapped to the
+  Claude model you are running (see the table below). If it cannot tell, it
+  uses the model set in agy itself, and with none set agy picks. A resumed
+  job keeps its model. A level on its own keeps the family of that model,
+  or uses Neon.
 - `--background` returns at once. Check on the job with `/agy:status`.
 - `--isolation container|host` overrides the isolation that `/agy:setup`
   reported.
@@ -88,6 +93,60 @@ Common options:
 Reviews and plans are read-only. A task's changes stay in the job's copy
 until you run `/agy:apply`, which refuses if the same files changed in your
 checkout meanwhile.
+
+### Which Gemini model to pick
+
+`--model` also takes any full model ID that `agy models` lists, such as
+`gemini-4-neon-medium`. Each Gemini 4 family has Low, Medium and High
+thinking levels. Neon also lists XHigh, but on a Gemini Enterprise seat on
+20 November 2026 it failed with `INVALID_ARGUMENT`.
+
+**Gemini 4 against Claude.** This is our own assessment from the sources
+below, not a claim by Google or Anthropic. Without `--model`, a new job uses
+it: Haiku gets `gemini-4-hydrogen-medium`, Sonnet `gemini-4-hydrogen-high`,
+Opus `gemini-4-neon-medium` and Fable `gemini-4-neon-high`. These are the
+plugin's choices, made for a score near Claude's usual effort and a review
+time short enough to wait for.
+
+| Gemini family | Nearest Claude | Why | A review here took | Use it for |
+| --- | --- | --- | --- | --- |
+| Hydrogen | Sonnet 5.5 | Index 51 at high, and 54 at XHigh, a level this seat does not offer. Sonnet scores 42 at high, 50 at XHigh. Google benchmarks it against Sonnet. | about 1 min at medium, 2 at high | Quick second opinions and most reviews |
+| Neon | Opus 5.5 | Index 55 at medium, 60 at high. Opus scores 52 at high, 57 at XHigh. Google benchmarks it against Opus. | about 2 min at medium, 5 at high | Reviews where depth matters more than waiting |
+| Carbon | Between Opus 5.5 and Fable 5.2 | Index 60 at high; Fable scores 62 at High and XHigh. About 50 to 60 tokens a second, the slowest output with Argon. | median 5 to 10 min over earlier reviews, longest 13 min 20 s | Long, hard tasks in the background |
+| Argon | Opus 5.5 at medium | Index 48 at medium, 50 at high; Opus scores 48 at medium. | about 1 min at medium, 5 at high | Comparing with reviews from before this change |
+
+- Hydrogen Medium scores higher than Haiku 5.5 at Max (41 against 36) at
+  about 15 times Haiku's price per token.
+- No Gemini 4 model reaches Fable 5.2 at Max (65).
+- "Index" is the Artificial Analysis Intelligence Index v5, read on
+  20 November 2026. Review times are from this plugin on one seat and
+  measure speed only, not review quality; the detail is in
+  [NOTES.md](NOTES.md).
+
+**Why Carbon and Argon are not defaults.** Both still work with `--model`.
+
+- **Carbon** is the model Google calls its strongest, for long, multi-step
+  work and security analysis. It scores like Neon High and takes longer.
+  Use `--model carbon` with `--background` when a hard task is worth a
+  wait of ten minutes or more.
+- **Argon** came to Antigravity on 13 October 2026 and was the plugin's
+  default until now. Argon Medium answers quickly and scores like
+  Opus at medium, but Neon and Hydrogen score higher at their high levels.
+  Use `--model argon` to compare with an earlier review.
+
+The names are chemical elements and do not show an order. Carbon is the
+strongest and Hydrogen the fastest, but Argon has the highest atomic number.
+The posts we read describe each model's role; the ranking in the table is
+ours.
+
+Sources:
+
+- Artificial Analysis model pages, such as
+  https://artificialanalysis.ai/models/gemini-4-neon and
+  https://artificialanalysis.ai/models/claude-opus-5-5
+- Google's model cards, such as
+  https://deepmind.google/models/model-cards/gemini-4-neon/
+- https://antigravity.google/docs/models/
 
 ## How agy is contained
 

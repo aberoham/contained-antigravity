@@ -1,12 +1,14 @@
 ---
 # Adapted from openai/codex-plugin-cc (Apache-2.0) and modified for agy. See NOTICE.
 description: Run an agy (Gemini) code review of local git changes, read-only
-argument-hint: '[--wait|--background] [--base <ref>] [--head <ref>] [--scope auto|working-tree|branch] [--model high|medium|low] [--instructions-file <path>] [instructions ...]'
+argument-hint: '[--wait|--background] [--base <ref>] [--head <ref>] [--scope auto|working-tree|branch] [--model <level|family|family-level|model ID>] [--instructions-file <path>] [instructions ...]'
 disable-model-invocation: true
 allowed-tools: Read, Glob, Grep, Bash(python3:*), Bash(git:*), AskUserQuestion
 ---
 
 Run an agy review through the agy companion.
+
+Replace `<your model ID>` with the Claude model ID you are running as, such as `claude-opus-5-5`. The companion uses it to pick the matching Gemini model when the arguments have no `--model`.
 
 Raw slash-command arguments:
 `$ARGUMENTS`
@@ -24,12 +26,12 @@ Execution mode:
 
 Foreground:
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agy_companion.py" review --raw "$ARGUMENTS"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agy_companion.py" review --caller-model "<your model ID>" --raw "$ARGUMENTS"
 ```
 Then follow the `agy-result-handling` skill: present the findings, verifying agy's quotes and file:line claims before you relay them.
 
 Background:
 ```typescript
-Bash({ command: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agy_companion.py" review --wait --wait-seconds 3600 --raw "<ARGUMENTS without --background>"`, description: "agy review", run_in_background: true })
+Bash({ command: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agy_companion.py" review --wait --wait-seconds 3600 --caller-model "<your model ID>" --raw "<ARGUMENTS without --background>"`, description: "agy review", run_in_background: true })
 ```
 Remove `--background` from the arguments before passing them (the companion would otherwise detach and return at once). Claude Code keeps the companion running as a background shell, so the user can watch it in the shell details view, and you are notified when it exits. Do not poll the output file. Tell the user: "agy review started in the background. Check `/agy:status` for progress." When the notification arrives, read the output file and follow the `agy-result-handling` skill.

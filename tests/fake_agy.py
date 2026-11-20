@@ -157,7 +157,8 @@ def main() -> int:
         # Replay a stream recorded from the real agy, unchanged.
         sys.stdout.write(Path(scenario[len("replay:") :]).read_text())
         return 0
-    model = arg_value(argv, "--model") or "default"
+    requested = arg_value(argv, "--model")
+    model = requested or "gemini-4-neon-high"  # agy's own default
     conversation = arg_value(argv, "--conversation") or str(uuid.uuid4())
     log_file = arg_value(argv, "--log-file")
     cwd = Path.cwd()
@@ -166,8 +167,9 @@ def main() -> int:
         {
             "event": "init",
             "conversation_id": conversation,
+            # Like the real agy (1.5.13), init names the model only when --model chose it.
             "init": {
-                "model": model,
+                **({"model": requested} if requested else {}),
                 "cwd": str(cwd),
                 "tools": ["read_file", "write_file", "run_command"],
                 "permission_mode": "request-review",
@@ -261,7 +263,7 @@ def main() -> int:
         time.sleep(5)
         return 0
 
-    stall_models = os.environ.get("FAKE_AGY_STALL_MODEL", "gemini-4-argon-high").split(",")
+    stall_models = os.environ.get("FAKE_AGY_STALL_MODEL", "gemini-4-neon-high").split(",")
     resuming_after_stall = message.startswith("Your previous attempt stopped because the model stream stalled")
     stalls_now = not resuming_after_stall or os.environ.get("FAKE_AGY_STALL_RESUMES")
     if scenario.startswith("stall") and model in stall_models and stalls_now:

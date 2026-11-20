@@ -1,11 +1,13 @@
 ---
 description: Ask agy (Gemini) to write an implementation plan without changing anything
-argument-hint: '[--wait|--background] [--model high|medium|low] <what the plan is for>'
+argument-hint: '[--wait|--background] [--model <level|family|family-level|model ID>] <what the plan is for>'
 disable-model-invocation: true
 allowed-tools: Read, Glob, Grep, Bash(python3:*), AskUserQuestion
 ---
 
 Ask agy for an implementation plan. agy runs read-only on a separate copy of the repository and writes the plan as its own artifact.
+
+Replace `<your model ID>` with the Claude model ID you are running as, such as `claude-opus-5-5`. The companion uses it to pick the matching Gemini model when the arguments have no `--model`.
 
 Raw slash-command arguments:
 `$ARGUMENTS`
@@ -17,7 +19,7 @@ Rules:
 
 Run:
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agy_companion.py" plan --background --raw "$ARGUMENTS"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agy_companion.py" plan --background --caller-model "<your model ID>" --raw "$ARGUMENTS"
 ```
 (Drop `--background` when the user passed `--wait`.)
 

@@ -1,6 +1,6 @@
 ---
 description: Send the output of commands agy queued back to its job and let it continue
-argument-hint: '<job-id> [results-file] [--note <text>]'
+argument-hint: '<job-id> [results-file] [--note <text>] [--model <level|family|family-level|model ID>]'
 disable-model-invocation: true
 allowed-tools: Bash(python3:*), Bash, Read, Write
 ---
@@ -19,4 +19,5 @@ Then run:
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agy_companion.py" resume --background <job-id> <results-file> --note "<what you skipped and why, if anything>"
 ```
+Add `--model <value>` only when the arguments include it; without it the job keeps its model.
 Tell the user the job is resuming and to check `/agy:status <job-id>`.
