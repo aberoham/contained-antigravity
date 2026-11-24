@@ -20,9 +20,10 @@ works on its own copy of your repository, so agy never edits your checkout.
   `containers/build.sh` from the source repository. It starts Colima if it
   is stopped and builds the image for your user; run it again if the image
   is ever deleted. Container jobs use a copy of your ordinary `agy` sign-in,
-  so there is no second sign-in. `containers/signin.sh` makes a separate
-  container-only sign-in, for a host whose agy keeps its token in the
-  keychain rather than in `~/.gemini/antigravity-cli/antigravity-oauth-token`.
+  from `~/.gemini/antigravity-cli/antigravity-oauth-token` or, on macOS, the
+  Keychain, so there is no second sign-in. `containers/signin.sh` makes a
+  separate container-only sign-in, for a Linux host whose agy keeps its
+  token in the system keyring.
   Without Docker and the image the plugin falls back to host mode,
   described below. The image carries `git`, `curl`, `jq`, `python3` and `uv`,
   so agy can run a Python repository's tests; add what your repositories
