@@ -1,14 +1,14 @@
 ---
 # Adapted from openai/codex-plugin-cc (Apache-2.0) and modified for agy. See NOTICE.
-description: Run an agy (Gemini) review that challenges the design and assumptions of local git changes
-argument-hint: '[--wait|--background] [--base <ref>] [--head <ref>] [--scope auto|working-tree|branch] [--model <level|family|family-level|model ID>] [--instructions-file <path>] [focus ...]'
+description: Run an agy (Gemini 4) review that challenges the design and assumptions of local git changes
+argument-hint: '[--wait|--background] [--base <ref>] [--head <ref>] [--scope auto|working-tree|branch] [--isolation container|host] [--read-dir <directory>] [--model <level|family|family-level|model ID>] [--instructions-file <path>] [focus ...]'
 disable-model-invocation: true
 allowed-tools: Read, Glob, Grep, Bash(python3:*), Bash(git:*), AskUserQuestion
 ---
 
 Run an agy adversarial review through the agy companion.
 
-Replace `<your model ID>` with the Claude model ID you are running as, such as `claude-opus-5-5`. The companion uses it to pick the matching Gemini model when the arguments have no `--model`.
+Replace `<your model ID>` with the Claude model ID you are running as, such as `claude-opus-5-5`. The companion uses it to pick the matching Gemini model when the arguments have no `--model` (if the user explicitly asks for a deeper model than Sonnet's default Hydrogen, `--model neon` or `--model carbon` in the background is appropriate; never add `--model xhigh` on your own).
 
 Raw slash-command arguments:
 `$ARGUMENTS`
@@ -16,22 +16,22 @@ Raw slash-command arguments:
 Core constraint:
 - This command is review-only. agy works on a separate copy of the repository and cannot change the user's files.
 - Do not fix issues, apply patches, or suggest that you are about to make changes.
-- Pass any focus text after the flags through unchanged. Do not weaken the adversarial framing.
+- Pass any focus text after the flags through unchanged. Do not weaken the adversarial framing. If a job fails with a Gemini API content-safety error on exploit-worded focus text, report the error and ask the user before retrying with invariant-checking wording ("trace untrusted input to X and verify guard Y").
 
 Execution mode:
 - If the arguments include `--wait`, run in the foreground. If they include `--background`, run in the background. Do not ask in either case.
-- Otherwise estimate the size first: `git status --short --untracked-files=all` and `git diff --shortstat` for working-tree changes, or `git diff --shortstat <base>...HEAD` for a branch (`<base>...<head>` with `--head`). Skip the estimate when a ref starts with `-`; the companion rejects it.
+- Otherwise estimate the size first: `git status --short --untracked-files=all` and `git diff --shortstat HEAD` (or `git diff --shortstat` if there is no `HEAD`) for working-tree changes, or `git diff --shortstat <base>...HEAD` for a branch (`<base>...<head>` with `--head`). Skip the estimate when a ref starts with `-`; the companion rejects it.
 - `--head <ref>` reviews a ref that is not checked out, such as a pull request fetched to `refs/remotes/pr/<n>`, against `--base`. The user's uncommitted changes are not part of that review.
 - Recommend waiting only for a tiny change (one or two files). Otherwise recommend background. Use `AskUserQuestion` once with `Wait for results` and `Run in background`, the recommended one first with `(Recommended)`.
 
-Foreground:
+Foreground (set the Bash call's `timeout` to `600000`):
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agy_companion.py" adversarial-review --caller-model "<your model ID>" --raw "$ARGUMENTS"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agy_companion.py" adversarial-review --wait-seconds 590 --caller-model "<your model ID>" <QUOTED_FLAGS> -- "<ESCAPED_FOCUS>"
 ```
-Then follow the `agy-result-handling` skill: present the findings, verifying agy's quotes and file:line claims before you relay them.
+Replace `<QUOTED_FLAGS>` with the flags parsed from the raw arguments above (each flag value quoted as its own shell argument, such as `--instructions-file "packet folder/notes.md"` or `--base main`), and replace `<ESCAPED_FOCUS>` with the remaining focus text with `\`, `"`, `$` and `` ` `` escaped so it arrives as one literal positional argument after `--` (omit `-- "<ESCAPED_FOCUS>"` when empty). If the output says the job is still running, run the `result <job> --wait-seconds 590` command printed at its end (with `timeout` `600000`), repeating up to six follow-up waits until it finishes. Then follow the `agy-result-handling` skill: present the findings, verifying agy's quotes and `file:line` claims before you relay them.
 
 Background:
 ```typescript
-Bash({ command: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agy_companion.py" adversarial-review --wait --wait-seconds 3600 --caller-model "<your model ID>" --raw "<ARGUMENTS without --background>"`, description: "agy adversarial review", run_in_background: true })
+Bash({ command: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agy_companion.py" adversarial-review --wait --wait-seconds 3600 --caller-model "<your model ID>" <QUOTED_FLAGS_WITHOUT_BACKGROUND> -- "<ESCAPED_FOCUS>"`, description: "agy adversarial review", run_in_background: true })
 ```
-Remove `--background` from the arguments before passing them (the companion would otherwise detach and return at once). Claude Code keeps the companion running as a background shell, so the user can watch it in the shell details view, and you are notified when it exits. Do not poll the output file. Tell the user: "agy adversarial review started in the background. Check `/agy:status` for progress." When the notification arrives, read the output file and follow the `agy-result-handling` skill.
+Construct `<QUOTED_FLAGS_WITHOUT_BACKGROUND>` and `<ESCAPED_FOCUS>` the same way while omitting `--background` (the companion would otherwise detach and return at once). Claude Code keeps the companion running as a background shell, so the user can watch it in the shell details view, and you are notified when it exits. Do not poll the output file. Tell the user: "agy adversarial review started in the background. Check `/agy:status` for progress." When the notification arrives, read the output file and follow the `agy-result-handling` skill.

@@ -85,6 +85,9 @@ def test_a_review_carries_the_callers_instructions(pr_repo, tmp_path, command):
     assert 'Author says: it\'s `sorted(v)` & "safe".' in prompt
     assert "1. Check even-length input. 2. Compare with #91." in prompt
     assert "name that request in" in prompt and "next_steps as not done" in prompt
+    assert prompt.index("<repository_context>") < prompt.index("<grounding_rules>")
+    tail = "<structured_output_contract>" if command == "adversarial-review" else "<output_contract>"
+    assert prompt.index("</repository_context>") < prompt.index(tail)
     assert "{{" not in prompt
 
 

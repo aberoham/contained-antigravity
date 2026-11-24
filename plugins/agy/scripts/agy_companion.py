@@ -47,24 +47,72 @@ KIND_MODES = {"review": None, "adversarial-review": None, "plan": "plan", "task"
 DEFAULT_WAIT_SECONDS = 100  # stays under Claude Code's default two-minute Bash timeout
 ISOLATION_CHOICES = ("auto", "container", "host")
 HOST_SHELL_RULE = (
-    "Shell commands that are not read-only are not run: they are queued for the colleague's "
-    "assistant, which may run them and send you the output in a later turn."
+    "Use your file tools (read_file, grep_search, find_by_name and list_dir) to inspect the "
+    "repository before reaching for run_command. Shell commands that are not read-only are not "
+    "run: they are queued for the colleague's assistant, which may run them and send you the "
+    "output in a later turn."
 )
 CONTAINER_SHELL_RULE = (
     "You are inside a container that holds only this working copy, so run the commands you need, including tests. "
     "The copy is a single commit: it has no history, no remotes and no other branches or refs, and no path outside "
-    "the repository exists here."
+    "the repository (except any extra read directory named below) exists here."
+)
+CONTAINER_READ_ONLY_SHELL_RULE = (
+    "You are inside a container with this working copy mounted read-only: inspect files with your "
+    "file tools or read-only shell commands, and do not write to the working copy. The copy is a "
+    "single commit: it has no history, no remotes and no other branches or refs, and no path "
+    "outside the repository (except any extra read directory named below) exists here."
 )
 HOST_REVIEW_GUIDANCE = (
-    "Use the repository context below as primary evidence. Do not use shell commands in this "
+    "Use the material in <repository_context> as primary evidence. Do not use shell commands in this "
     "job; most are blocked. Use your file tools (read, list, find and search files) to inspect "
     "the repository."
 )
 CONTAINER_REVIEW_GUIDANCE = (
-    "Use the repository context below as primary evidence, and inspect the working copy with "
+    "Use the material in <repository_context> as primary evidence, and inspect the working copy with "
     "your file tools or read-only shell commands. Do not change files. The working copy is a single "
     "commit with no history, remotes or other refs, so git log and git diff show nothing useful there: the "
-    "change under review is the diff given below, and the files in the working copy are its result."
+    "change under review is the diff in <repository_context>, and the files in the working copy are its result."
+)
+HOST_PLAN_GUIDANCE = (
+    "Do not use shell commands in this job; most are blocked. Use your file tools "
+    "(read_file, list_dir, find_by_name and grep_search) to inspect the repository."
+)
+CONTAINER_PLAN_GUIDANCE = (
+    "The working copy is mounted read-only as a single commit with no history, remotes or "
+    "other refs. Inspect it with your file tools or read-only shell commands, and do not "
+    "write inside the working copy."
+)
+WRITABLE_TASK_ROLE = (
+    "You are working on a copy of a colleague's repository in a separate git working copy. "
+    "Your file edits stay there until they review and apply them."
+)
+READ_ONLY_TASK_ROLE = (
+    "You have read-only access to a copy of a colleague's repository. Do not edit or create "
+    "any file: writes are blocked, so put your entire answer in your reply."
+)
+WRITABLE_WORKING_RULES = (
+    "Keep changes narrow and inside the task. Do not refactor unrelated code. Read the relevant "
+    "files before you change them, and quote code or text only from files you opened in this "
+    "session. When you need a command output to continue, such as a test run, call run_command "
+    "once. If the command is not run, continue with what you can do and, at the end of your "
+    "reply, list each command you still need and why."
+)
+READ_ONLY_WORKING_RULES = (
+    "Stay inside the task. Read any relevant files before making claims about them, quote code "
+    "or text only from files you opened in this session, and separate observed facts from "
+    "inferences. When you need a command output that is blocked, call run_command once, "
+    "continue with what you can do, and list each command you still need and why at the end of "
+    "your reply."
+)
+WRITABLE_FINAL_REPORT = (
+    "End with: what you changed (file by file), what you verified and how, what you could not "
+    "verify, and any commands you still need."
+)
+READ_ONLY_FINAL_REPORT = (
+    "Give the answer or text the task asked for directly. When the task asks for diagnosis or "
+    "code analysis rather than a standalone draft, end with what you verified, what you could "
+    "not verify, and any commands you still need."
 )
 # What a task request may name that the job cannot reach. A container copy is
 # one commit with no refs; in either mode only the repository and any
@@ -89,9 +137,13 @@ DIFF_HEADERS = (
     "rename to ",
     "Binary files ",
 )
-READ_ONLY_NOTE = (
+CONTAINER_READ_ONLY_NOTE = (
     "\n\nThis round is read-only: the working copy is mounted read-only, so do not try to edit "
-    "files or run commands that write there. Report what you find and what you would change.\n"
+    "files or run commands that write there. Put your entire answer in your reply.\n"
+)
+HOST_READ_ONLY_NOTE = (
+    "\n\nThis round is read-only: file writes are blocked by policy, so do not try to edit "
+    "files or run commands that write. Put your entire answer in your reply.\n"
 )
 
 
@@ -114,13 +166,34 @@ def emit(value: Any, as_json: bool) -> None:
         print(value)
 
 
+PLACEHOLDER = re.compile(r"\{\{([A-Z_]+)\}\}")
+
+
 def template(name: str, **values: str) -> str:
     text = (PLUGIN_ROOT / "prompts" / name).read_text(encoding="utf-8")
     if text.startswith("<!--"):  # licence notice for people, not for the model
         text = text[text.index("-->") + 3 :].lstrip("\n")
-    for key, value in values.items():
-        text = text.replace("{{" + key + "}}", value)
-    return text
+    return PLACEHOLDER.sub(lambda match: values.get(match.group(1), match.group(0)), text)
+
+
+def _expand_path(raw: str, flag: str) -> Path:
+    try:
+        return Path(raw).expanduser()
+    except RuntimeError as exc:
+        raise UsageError(f"cannot resolve {flag} {raw}: {exc}") from exc
+
+
+def _resolve_read_dirs(raw_dirs: list[str] | None, in_container: bool) -> list[str]:
+    pairs = [(raw, _expand_path(raw, "--read-dir").resolve()) for raw in (raw_dirs or [])]
+    if in_container:
+        for _raw, directory in pairs:
+            problem = container.overlaps_protected(directory)
+            if problem:
+                raise UsageError(f"--read-dir refused: {problem}.")
+    for raw, directory in pairs:
+        if not directory.is_dir():
+            raise UsageError(f"--read-dir {raw} is not an existing directory.")
+    return list(dict.fromkeys(str(directory) for _raw, directory in pairs))
 
 
 # setup ------------------------------------------------------------------------
@@ -237,7 +310,7 @@ def start_job(
         "status": "queued",
         "phase": "starting",
         "model": agybin.resolve_model(args.model, caller=args.caller_model, settings=model_settings(isolation)),
-        "mode": KIND_MODES[kind],
+        "mode": None if (kind == "task" and not writable) else KIND_MODES[kind],
         "writable": writable,
         "worktree": str(worktree),
         "repo_root": str(root),
@@ -250,15 +323,11 @@ def start_job(
         if kind in ("review", "adversarial-review")
         else None,
         "next_round_kind": "initial",
-        "read_dirs": [str(Path(d).expanduser().resolve()) for d in (args.read_dir or [])],
+        "read_dirs": _resolve_read_dirs(args.read_dir, isolation == "container"),
         "generation": 1,
     }
     head_commit = ((extra or {}).get("target") or {}).get("head_commit")
     if isolation == "container":
-        for directory in record["read_dirs"]:
-            problem = container.overlaps_protected(Path(directory))
-            if problem:
-                raise UsageError(f"--read-dir refused: {problem}.")
         record["baseline"] = gitctx.create_copy(root, worktree, head_commit)
     else:
         record["baseline"] = gitctx.create_worktree(root, worktree, hook_command(job_dir), head_commit)
@@ -407,12 +476,12 @@ def unreachable_names(request: str, root: Path, read_dirs: list[str], in_contain
 def cmd_review(args: argparse.Namespace, kind: str = "review") -> int:
     root = gitctx.repo_root(os.getcwd())
     target = gitctx.resolve_target(root, args.base, args.scope, args.head)  # a bad ref is reported first
+    focus = review_instructions(args) or "(none)"
     in_container = choose_isolation(args) == "container"
     context = gitctx.collect_context(root, target)
     if not context["files"]:
         print(f"Nothing to review: no changes found for {target['label']}.")
         return 0
-    focus = review_instructions(args) or "(none)"
     name = "adversarial-review.md" if kind == "adversarial-review" else "review.md"
     message = template(
         name,
@@ -425,6 +494,15 @@ def cmd_review(args: argparse.Namespace, kind: str = "review") -> int:
     return start_job(args, kind, message, writable=False, extra={"target": target}, copy_files=context["copy_files"])
 
 
+def _read_flag_file(path_value: str, flag: str) -> str:
+    if not path_value.strip():
+        raise UsageError(f"cannot read {flag}: empty path")
+    try:
+        return _expand_path(path_value, flag).read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError) as exc:
+        raise UsageError(f"cannot read {flag} {path_value}: {exc}") from exc
+
+
 def review_instructions(args: argparse.Namespace) -> str:
     """What the caller asked the review to check: the instructions file, then the words after the flags.
 
@@ -432,24 +510,47 @@ def review_instructions(args: argparse.Namespace) -> str:
     read; the job itself sees only the repository.
     """
     parts = []
-    if args.instructions_file:
-        try:
-            parts.append(Path(args.instructions_file).expanduser().read_text(encoding="utf-8").strip())
-        except (OSError, UnicodeDecodeError) as exc:
-            raise UsageError(f"cannot read --instructions-file {args.instructions_file}: {exc}") from exc
+    if args.instructions_file is not None:
+        parts.append(_read_flag_file(args.instructions_file, "--instructions-file"))
     parts.append(" ".join(args.focus or []).strip())
     return "\n\n".join(p for p in parts if p)
 
 
+def request_text(args: argparse.Namespace) -> str:
+    """What the caller asked plan or task to do: --request-file on the host, then trailing words."""
+    parts = []
+    request_file = getattr(args, "request_file", None)
+    if request_file is not None:
+        parts.append(_read_flag_file(request_file, "--request-file"))
+    parts.append(" ".join(args.request or []).strip())
+    return "\n\n".join(p for p in parts if p)
+
+
 def cmd_plan(args: argparse.Namespace) -> int:
-    request = " ".join(args.request).strip()
+    request = request_text(args)
     if not request:
         raise UsageError("Say what the plan is for, for example: /agy:plan add retry to the uploader")
-    return start_job(args, "plan", template("plan.md", USER_REQUEST=request), writable=False)
+    gitctx.repo_root(os.getcwd())
+    in_container = choose_isolation(args) == "container"
+    guidance = CONTAINER_PLAN_GUIDANCE if in_container else HOST_PLAN_GUIDANCE
+    message = template("plan.md", USER_REQUEST=request, PLAN_COLLECTION_GUIDANCE=guidance)
+    return start_job(args, "plan", message, writable=False)
+
+
+def _print_unreachable_note(missing: list[str], in_container: bool) -> None:
+    if not missing:
+        return
+    # On stdout, because a subagent relays only stdout to its caller.
+    print(
+        f"Note: the request names {', '.join(missing)}, which the job cannot reach. "
+        + ("Its copy is one commit, with no other refs or history, and " if in_container else "It ")
+        + "reads only the repository and any --read-dir directory. Paste the diff or file into the request, "
+        "pass --read-dir, or review a ref with `review --base <ref> --head <ref>`.\n"
+    )
 
 
 def cmd_task(args: argparse.Namespace) -> int:
-    request = " ".join(args.request).strip()
+    request = request_text(args)
     if not request:
         raise UsageError("Say what agy should do.")
     store = JobStore(gitctx.repo_root(os.getcwd()))
@@ -463,25 +564,43 @@ def cmd_task(args: argparse.Namespace) -> int:
         )
         if not previous:
             raise UsageError("No earlier agy task from this session to resume in this repository.")
-        if args.read_only and previous.get("isolation") == "container":
-            request += READ_ONLY_NOTE
+        if not previous.get("writable") and not args.read_only:
+            raise UsageError(
+                f"Job {previous['id']} started with --read-only and cannot edit files; pass --read-only "
+                "for another read-only round, or start a new task without --read-only."
+            )
+        in_prev_container = previous.get("isolation") == "container"
+        extra_dirs = _resolve_read_dirs(args.read_dir, in_prev_container)
+        combined_dirs = list(dict.fromkeys([*(previous.get("read_dirs") or []), *extra_dirs]))
+        _print_unreachable_note(
+            unreachable_names(request, store.root, combined_dirs, in_prev_container), in_prev_container
+        )
+        if args.read_only:
+            request += CONTAINER_READ_ONLY_NOTE if in_prev_container else HOST_READ_ONLY_NOTE
         return continue_job(store, previous, request, "follow-up", args, read_only=args.read_only)
     in_container = choose_isolation(args) == "container"
-    message = template(
-        "task.md", USER_REQUEST=request, SHELL_RULE=CONTAINER_SHELL_RULE if in_container else HOST_SHELL_RULE
-    )
-    if args.read_only and in_container:
-        message += READ_ONLY_NOTE
-    read_dirs = [str(Path(d).expanduser().resolve()) for d in (args.read_dir or [])]
-    missing = unreachable_names(request, store.root, read_dirs, in_container)
-    if missing:
-        # On stdout, because a subagent relays only stdout to its caller.
-        print(
-            f"Note: the request names {', '.join(missing)}, which the job cannot reach. "
-            + ("Its copy is one commit, with no other refs or history, and " if in_container else "It ")
-            + "reads only the repository and any --read-dir directory. Paste the diff or file into the request, "
-            "pass --read-dir, or review a ref with `review --base <ref> --head <ref>`.\n"
+    read_dirs = _resolve_read_dirs(args.read_dir, in_container)
+    if args.read_only:
+        shell_rule = CONTAINER_READ_ONLY_SHELL_RULE if in_container else HOST_SHELL_RULE
+        message = template(
+            "task.md",
+            TASK_ROLE=READ_ONLY_TASK_ROLE,
+            SHELL_RULE=shell_rule,
+            USER_REQUEST=request,
+            WORKING_RULES=READ_ONLY_WORKING_RULES,
+            FINAL_REPORT=READ_ONLY_FINAL_REPORT,
         )
+    else:
+        shell_rule = CONTAINER_SHELL_RULE if in_container else HOST_SHELL_RULE
+        message = template(
+            "task.md",
+            TASK_ROLE=WRITABLE_TASK_ROLE,
+            SHELL_RULE=shell_rule,
+            USER_REQUEST=request,
+            WORKING_RULES=WRITABLE_WORKING_RULES,
+            FINAL_REPORT=WRITABLE_FINAL_REPORT,
+        )
+    _print_unreachable_note(unreachable_names(request, store.root, read_dirs, in_container), in_container)
     return start_job(args, "task", message, writable=not args.read_only)
 
 
@@ -501,15 +620,21 @@ def continue_job(
     job's own "writable" flag is left alone, so the export after the round and
     /agy:apply still see the edits earlier rounds made."""
     job_id = job["id"]
+    wanted_iso = getattr(args, "isolation", None) or "auto"
 
     def mutate(record: dict[str, Any]) -> None:
         if record.get("status") in ACTIVE_STATUSES:
             raise UsageError(f"Job {job_id} is still running.")
+        current_iso = record.get("isolation") or "host"
+        if wanted_iso != "auto" and wanted_iso != current_iso:
+            raise UsageError(f"Job {job_id} uses {current_iso} isolation; start a new job to use {wanted_iso}.")
+        extra_dirs = _resolve_read_dirs(getattr(args, "read_dir", None), current_iso == "container")
         # Checked under the lock that cleanup and expiry also take.
         worktree = record.get("worktree")
         if not worktree or not Path(worktree).is_dir():
             raise UsageError(f"Job {job_id}'s working copy no longer exists; start a new job.")
         finished = parse_iso(record.get("completed_at"))
+        merged_dirs = list(dict.fromkeys([*(record.get("read_dirs") or []), *extra_dirs]))
         record.update(
             {
                 "status": "queued",
@@ -518,6 +643,7 @@ def continue_job(
                 "error": None,
                 "failure": None,
                 "queued_commands": [],
+                "read_dirs": merged_dirs,
                 "pending_approval_wait_s": round(time.time() - finished.timestamp(), 1) if finished else None,
             }
         )
@@ -525,7 +651,7 @@ def continue_job(
             record["model"] = agybin.resolve_model(
                 args.model,
                 caller=getattr(args, "caller_model", None),
-                settings=model_settings(record.get("isolation") or "host"),
+                settings=model_settings(current_iso),
                 current=record.get("model"),
             )
         if read_only is not None:
@@ -534,6 +660,8 @@ def continue_job(
         record.update({"pid": None, "agy_pid": None})
 
     record = store.update(job_id, mutate)
+    if record.get("read_dirs"):
+        message += "\n\nYou may also read files in: " + ", ".join(record["read_dirs"]) + "\n"
     job_dir = store.job_dir(job_id)
     if record.get("isolation") != "container":
         try:
@@ -569,14 +697,21 @@ def cmd_resume(args: argparse.Namespace) -> int:
         raise UsageError("No matching agy job.")
     if not job.get("conversation_id"):
         raise UsageError(f"Job {job['id']} has no agy conversation to resume.")
-    results = Path(args.results_file).read_text(encoding="utf-8") if args.results_file else ""
+    has_file = args.results_file is not None
+    results = _read_flag_file(args.results_file, "results_file") if has_file else ""
     note = " ".join(args.note or []).strip()
     if not results and not note:
         raise UsageError("Give the command output file, a note, or both.")
-    body = results.strip()
-    if note:
-        body = f"{body}\n\nNote from Claude: {note}".strip()
-    return continue_job(store, job, template("resume-with-results.md", COMMAND_RESULTS=body), "approval-resume", args)
+    if not has_file:
+        message = (
+            "The commands you requested were not run. Continue the task from where you stopped "
+            f"following the note below and give the complete final answer.\n\nNote from Claude: {note}\n"
+        )
+    else:
+        shown = results or "(the results file contained no output)"
+        body = f"{shown}\n\nNote from Claude: {note}" if note else shown
+        message = template("resume-with-results.md", COMMAND_RESULTS=body)
+    return continue_job(store, job, message, "approval-resume", args)
 
 
 # worker -------------------------------------------------------------------------
@@ -676,7 +811,8 @@ def cmd_status(args: argparse.Namespace) -> int:
         job = store.resolve(args.job)
         if not job:
             raise UsageError(f"No agy job matches {args.job}.")
-        print(render.job_detail(job))
+        stored = read_json(store.job_dir(job["id"]) / "result.json")
+        print(render.job_detail(job, stored))
         return 0
     predicate = _session_filter(args)
     every = store.list_jobs()
@@ -923,6 +1059,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     plan = sub.add_parser("plan")
     add_run_options(plan)
+    plan.add_argument("--request-file", help="a file holding the plan request, read on the host")
     plan.add_argument("request", nargs="*")
     plan.set_defaults(func=cmd_plan)
 
@@ -930,6 +1067,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_run_options(task)
     task.add_argument("--read-only", action="store_true")
     task.add_argument("--resume-last", action="store_true")
+    task.add_argument("--request-file", help="a file holding the task request, read on the host")
     task.add_argument("request", nargs="*")
     task.set_defaults(func=cmd_task)
 
@@ -974,13 +1112,73 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _split_prose_preserving_quotes(raw: str) -> list[str]:
+    """Split on whitespace while keeping balanced "..." and standalone '...' tokens intact.
+
+    Used only when shlex.split fails (for example, an apostrophe in "caller's").
+    Unlike shlex.shlex, '#' is never a comment and backslashes outside double
+    quotes stay literal, so '#91' and 'C:\\temp' survive unchanged.
+    """
+    tokens: list[str] = []
+    buf: list[str] = []
+    index = 0
+    length = len(raw)
+    while index < length:
+        ch = raw[index]
+        if ch.isspace():
+            if buf:
+                tokens.append("".join(buf))
+                buf = []
+            index += 1
+            continue
+        if ch == '"' and (not buf or buf[-1] == "="):
+            end = index + 1
+            inner: list[str] = []
+            closed = False
+            while end < length:
+                cur = raw[end]
+                if cur == "\\" and end + 1 < length and raw[end + 1] in ('"', "\\"):
+                    inner.append(raw[end + 1])
+                    end += 2
+                    continue
+                if cur == '"':
+                    closed = True
+                    end += 1
+                    break
+                inner.append(cur)
+                end += 1
+            if closed and (end == length or raw[end].isspace()):
+                buf.extend(inner)
+                index = end
+                continue
+        if ch == "'" and (not buf or buf[-1] == "="):
+            close = raw.find("'", index + 1)
+            if close != -1 and (close + 1 == length or raw[close + 1].isspace()):
+                buf.append(raw[index + 1 : close])
+                index = close + 1
+                continue
+        buf.append(ch)
+        index += 1
+    if buf:
+        tokens.append("".join(buf))
+    return tokens
+
+
+def _split_raw(raw: str) -> list[str]:
+    try:
+        return shlex.split(raw)
+    except ValueError:
+        return _split_prose_preserving_quotes(raw)
+
+
 def split_arguments(argv: list[str]) -> list[str]:
     """Expand `--raw <string>` into the words of the string.
 
     Slash commands pass the user's whole argument line as one string after
-    --raw, and it is split like a shell would split it. A stray apostrophe
-    falls back to splitting on whitespace. Every other argument is kept as it
-    is, so a quoted path with spaces stays one argument.
+    --raw, and it is split like a shell would split it. A stray apostrophe in
+    prose preserves double-quoted arguments before falling back to whitespace.
+    Every other argument is kept as it is, so a quoted path with spaces stays
+    one argument.
     """
     out: list[str] = []
     items = iter(argv)
@@ -988,11 +1186,7 @@ def split_arguments(argv: list[str]) -> list[str]:
         if arg != "--raw":
             out.append(arg)
             continue
-        raw = next(items, "")
-        try:
-            out += shlex.split(raw)
-        except ValueError:
-            out += raw.split()
+        out += _split_raw(next(items, ""))
     return out
 
 

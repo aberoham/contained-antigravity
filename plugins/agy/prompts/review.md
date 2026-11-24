@@ -11,6 +11,10 @@ Target: {{TARGET_LABEL}}
 Summary: {{TARGET_SUMMARY}}
 </task>
 
+<repository_context>
+{{REVIEW_INPUT}}
+</repository_context>
+
 <reviewer_instructions>
 The colleague's own context and requests for this review, or "(none)":
 
@@ -25,7 +29,7 @@ next_steps as not done.
 </reviewer_instructions>
 
 <review_method>
-Use the repository context below as primary evidence. Open the changed files
+Use the repository context above as primary evidence. Open the changed files
 and their callers to confirm each finding before you report it.
 Look for correctness bugs, broken error handling, security and data-loss risks,
 race conditions, and behaviour that contradicts the surrounding code.
@@ -53,7 +57,3 @@ comes first. Otherwise use verdict "needs-attention" when any finding should
 block the change, and "approve" when none does. If you find
 nothing material, return an empty findings array and say so in the summary.
 </output_contract>
-
-<repository_context>
-{{REVIEW_INPUT}}
-</repository_context>

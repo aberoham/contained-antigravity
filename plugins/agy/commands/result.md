@@ -3,9 +3,9 @@
 description: Show the stored output of a finished agy job
 argument-hint: '[job-id]'
 disable-model-invocation: true
-allowed-tools: Bash(python3:*), Read, Grep
+allowed-tools: Bash(python3:*), Bash(git:*), Read, Glob, Grep
 ---
 
 !`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agy_companion.py" result --raw "$ARGUMENTS"`
 
-Present the output following the `agy-result-handling` skill. Keep verdicts, findings, file paths, line numbers, errors and the follow-up commands. Verify quotes and file:line claims before relaying them.
+If the output says the job is still running, report its status and progress as printed and stop. Otherwise present the output following the `agy-result-handling` skill: keep verdicts, findings, file paths, line numbers, errors and the follow-up commands, and verify quotes and `file:line` claims (using `git show <ref>:<path>` when the review ran with `--head <ref>`) before relaying them.

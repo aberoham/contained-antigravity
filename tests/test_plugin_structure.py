@@ -33,20 +33,40 @@ def test_manifest_and_catalog_follow_thg_rules():
         assert entry[field] == manifest[field]
 
 
+def _check_yaml_frontmatter(path):
+    """Verify simple YAML frontmatter has no unquoted ': ' inside scalar values."""
+    text = path.read_text(encoding="utf-8")
+    front = FRONTMATTER.match(text)
+    assert front, f"{path} is missing YAML frontmatter"
+    for raw in front[1].splitlines():
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#") or stripped.startswith("- "):
+            continue
+        assert ":" in raw, f"{path}: malformed frontmatter line {raw!r}"
+        _key, value = raw.split(":", 1)
+        scalar = value.strip()
+        if not scalar or scalar[0] in ('"', "'", "|", ">", "[", "{"):
+            continue
+        assert ": " not in scalar, f"{path}: quote frontmatter value containing ': ': {raw!r}"
+
+
 def test_every_skill_has_description_and_gotchas():
     skills = sorted((PLUGIN / "skills").glob("*/SKILL.md"))
     assert skills
     for skill in skills:
+        _check_yaml_frontmatter(skill)
         text = skill.read_text(encoding="utf-8")
         front = FRONTMATTER.match(text)
         assert front and re.search(r"^description:[ \t]*\S", front[1], re.M), skill
         assert re.search(r"^## Gotchas", text, re.M), f"{skill} needs a Gotchas section"
 
 
-def test_commands_have_frontmatter_and_use_the_companion():
+def test_commands_and_agents_have_valid_frontmatter_and_use_the_companion():
+    for agent in sorted((PLUGIN / "agents").glob("*.md")):
+        _check_yaml_frontmatter(agent)
     for command in sorted((PLUGIN / "commands").glob("*.md")):
+        _check_yaml_frontmatter(command)
         text = command.read_text(encoding="utf-8")
-        assert FRONTMATTER.match(text), command
         if command.stem != "rescue":
             assert "agy_companion.py" in text, command
         assert "dangerously-skip-permissions" not in text

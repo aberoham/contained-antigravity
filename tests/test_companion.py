@@ -52,12 +52,109 @@ def test_arguments_arrive_as_one_string(companion):
     assert "Verdict" in proc.stdout
 
 
-def test_plan_reads_the_plan_from_the_brain_artifact(companion):
+def test_plan_reads_the_plan_from_the_brain_artifact(companion, contained, tmp_path):
     proc = companion.run("plan", NO_SANDBOX, "add a median function", scenario="plan")
     assert "1. Do the thing." in proc.stdout
     (call,) = companion.agy_calls()
     assert call["argv"][call["argv"].index("--mode") + 1] == "plan"
-    assert "add a median function" in json.loads(call["stdin"])["message"]["content"]
+    host_prompt = json.loads(call["stdin"])["message"]["content"]
+    assert "add a median function" in host_prompt
+    assert "most are blocked" in host_prompt
+    req = tmp_path / "plan-req.md"
+    req.write_text("Plan `stats.py` changes for $HOME & 'quotes'.\n")
+    contained.run("plan", "--request-file", str(req), "Keep CLI stable.", scenario="plan")
+    container_prompt = json.loads(contained.agy_calls()[-1]["stdin"])["message"]["content"]
+    assert "Plan `stats.py` changes for $HOME & 'quotes'." in container_prompt
+    assert "Keep CLI stable." in container_prompt
+    assert "mounted read-only as a single commit" in container_prompt
+
+
+def test_read_only_task_skips_accept_edits_and_reads_request_file(companion, repo, tmp_path):
+    req = tmp_path / "task-req.md"
+    req.write_text("Draft PR notes for `stats.py` ($VAR, 'single', \"double\") and {{FINAL_REPORT}}.\n")
+    proc = companion.run("task", NO_SANDBOX, "--read-only", "--request-file", str(req))
+    assert proc.returncode == 0
+    job = companion.job()
+    assert job["writable"] is False and job["mode"] is None
+    (call,) = companion.agy_calls()
+    assert "--mode" not in call["argv"]
+    prompt = json.loads(call["stdin"])["message"]["content"]
+    assert "Draft PR notes for `stats.py` ($VAR, 'single', \"double\") and {{FINAL_REPORT}}." in prompt
+    assert "read-only access" in prompt
+    assert "what you changed (file by file)" not in prompt
+    # A read-only job cannot silently accept an edit follow-up without --read-only.
+    edit_followup = companion.run("task", NO_SANDBOX, "--resume-last", "apply the top fix", check=False)
+    assert edit_followup.returncode == 2 and "started with --read-only" in edit_followup.stderr
+    for bad in (str(tmp_path / "missing.md"), "", "~nosuchuser_agy_test/req.md"):
+        failed = companion.run("task", NO_SANDBOX, f"--request-file={bad}", check=False)
+        assert failed.returncode == 2 and "cannot" in failed.stderr
+    failed_inst = companion.run("review", NO_SANDBOX, "--instructions-file=", check=False)
+    assert failed_inst.returncode == 2 and "cannot read --instructions-file" in failed_inst.stderr
+    # Even when the working tree has nothing to review, an invalid --instructions-file fails fast.
+    git(repo, "checkout", "--", "stats.py")
+    (repo / "notes.txt").unlink()
+    clean_bad = companion.run("review", NO_SANDBOX, "--instructions-file", str(tmp_path / "absent.md"), check=False)
+    assert clean_bad.returncode == 2 and "cannot read --instructions-file" in clean_bad.stderr
+
+
+def test_raw_splitting_preserves_quoted_paths_beside_prose_apostrophes():
+    from agy_companion import split_arguments
+
+    for quote in ('"', "'"):
+        for prose in ("explain the caller's change", "explain the users' change"):
+            raw = f"--request-file {quote}packet folder/request.md{quote} {prose}"
+            words = split_arguments(["plan", "--raw", raw])
+            assert words[:3] == ["plan", "--request-file", "packet folder/request.md"]
+            assert " ".join(words[3:]) == prose
+    preserved = "the users' and groups' settings and don't edit #91 in C:\\temp"
+    assert split_arguments(["task", "--raw", preserved]) == ["task", *preserved.split()]
+    issue_ref = 'check the caller\'s fix for #91 distinguishes {"id":"1"} from {"id":1}'
+    assert split_arguments(["review", "--raw", issue_ref]) == ["review", *issue_ref.split()]
+
+
+def test_note_only_resume_says_commands_were_not_run(companion, tmp_path):
+    companion.run("task", NO_SANDBOX, "fix the bug", scenario="task")
+    job = companion.job()
+    assert job["status"] == "needs-approval"
+    companion.run("resume", job["id"], "--note", "Skip make test; answer from files.", NO_SANDBOX, scenario="reply")
+    second_prompt = json.loads(companion.agy_calls()[-1]["stdin"])["message"]["content"]
+    assert "were not run" in second_prompt
+    assert "were run outside your environment" not in second_prompt
+    assert "Skip make test; answer from files." in second_prompt
+    empty_results = tmp_path / "empty.txt"
+    empty_results.write_text("")
+    companion.run(
+        "resume", job["id"], str(empty_results), "--note", "git diff --quiet exited 0.", NO_SANDBOX, scenario="reply"
+    )
+    third_prompt = json.loads(companion.agy_calls()[-1]["stdin"])["message"]["content"]
+    assert "were run outside your environment" in third_prompt
+    assert "(the results file contained no output)" in third_prompt
+    assert "git diff --quiet exited 0." in third_prompt
+
+
+def test_legacy_completed_writable_job_without_has_changes_uses_stored_result():
+    from agylib import render
+
+    legacy = {"id": "task-old", "kind": "task", "status": "completed", "writable": True}
+    assert "/agy:apply" not in render.job_detail(legacy, {"response": "ok", "changed_paths": []})
+    assert "/agy:apply" in render.job_detail(legacy, {"response": "ok", "changed_paths": [["M", "a.py"]]})
+
+
+def test_writable_task_with_no_changes_omits_apply_hint_and_missing_read_dir_fails(companion, tmp_path):
+    proc = companion.run("task", NO_SANDBOX, "just answer", scenario="reply")
+    assert "agy changed no files." in proc.stdout
+    assert "/agy:apply" not in proc.stdout
+    job = companion.job()
+    assert job["has_changes"] is False
+    detail = companion.run("status", job["id"]).stdout
+    assert "/agy:apply" not in detail
+    missing_dir = tmp_path / "no-such-dir"
+    bad_fresh = companion.run("task", NO_SANDBOX, "--read-dir", str(missing_dir), "look", check=False)
+    assert bad_fresh.returncode == 2 and "not an existing directory" in bad_fresh.stderr
+    bad_followup = companion.run(
+        "task", NO_SANDBOX, "--resume-last", "--read-dir", str(missing_dir), "more", check=False
+    )
+    assert bad_followup.returncode == 2 and "not an existing directory" in bad_followup.stderr
 
 
 def test_task_edits_worktree_only_queues_commands_and_resumes(companion, repo, tmp_path):

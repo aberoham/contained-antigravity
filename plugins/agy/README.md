@@ -61,8 +61,8 @@ Then run `/agy:setup`.
 | --- | --- |
 | `/agy:review` | Reviews uncommitted changes, the branch against its base (`--base <ref>`), or another ref without checking it out (`--base <ref> --head <ref>`). Takes instructions: text after the flags, or `--instructions-file <path>`. Read-only. |
 | `/agy:adversarial-review` | Review that challenges the design and assumptions. Takes focus text. Read-only. |
-| `/agy:plan <request>` | Writes an implementation plan. Read-only. |
-| `/agy:rescue <request>` | Hands a debugging or implementation task to agy through the `agy-rescue` subagent. agy edits its own working copy. The subagent is also how Claude starts a review by itself. |
+| `/agy:plan <request>` | Writes an implementation plan. Takes `--request-file <path>`. Read-only. |
+| `/agy:rescue <request>` | Hands a debugging or implementation task to agy through the `agy-rescue` subagent (`--request-file <path>` supported). agy edits its own working copy unless `--read-only` is set. The subagent is also how Claude starts a review by itself, while the `agy-writing` skill runs a read-only task to draft or rewrite pull requests, issue comments, emails and write-ups in Gemini 4's prose voice. |
 | `/agy:status [job]` | Lists jobs, or shows one job with a table of its rounds: duration, time waiting for Claude, tokens, stalls and queued commands. |
 | `/agy:result [job]` | Shows a finished job's output. |
 | `/agy:resume <job> [file]` | Sends the output of commands agy queued back to agy, and lets it continue. |

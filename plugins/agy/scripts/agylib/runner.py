@@ -445,17 +445,18 @@ class JobRunner:
     def _command(self, model: str | None, conversation: str | None, log_path: Path) -> list[str]:
         binary = Path(self.job["agy_bin"])
         schema = self.job.get("json_schema")
+        writable = bool(self.job.get("writable")) and not self.job.get("read_only_round")
+        mode = None if (self.job.get("kind") == "task" and not writable) else self.job["mode"]
         command = agybin.build_command(
             binary,
             model=model,
-            mode=self.job["mode"],
+            mode=mode,
             log_file=log_path,
             conversation_id=conversation,
             json_schema=Path(schema) if schema else None,
         )
         name = self._container_name()
         if name:
-            writable = bool(self.job.get("writable")) and not self.job.get("read_only_round")
             return container.wrap(command, name=name, mounts=self._mounts(writable))
         if self.job.get("os_sandbox"):
             command = sandbox.wrap(
@@ -653,6 +654,7 @@ class JobRunner:
                     "model": round_record["final_model"],
                     "completed_at": now_iso(),
                     "queued_commands": commands,
+                    "has_changes": bool(stored.get("changed_paths")),
                     "progress": dict(self.progress, text=self.progress["text"][-400:]),
                 }
             )

@@ -38,16 +38,27 @@ def test_the_command_files_pass_the_caller_model():
 @pytest.mark.parametrize("shell", SHELLS)
 @pytest.mark.parametrize("caller", CALLER_IDS)
 @pytest.mark.parametrize(("name", "line"), caller_model_lines())
-def test_a_caller_model_reaches_the_companion_as_one_argument(shell, caller, name, line, tmp_path):
+def test_a_caller_model_and_space_path_reach_the_companion_from_extracted_lines(shell, caller, name, line, tmp_path):
+    from agy_companion import build_parser, split_arguments
+
+    file_flag = (
+        '--request-file "packet folder/req.md"' if name == "plan.md" else '--instructions-file "packet folder/in.md"'
+    )
+    prose = 'check the caller\'s fix for #91 distinguishes {"id":"1"} from {"id":1}'
+    escaped_prose = prose.replace("\\", "\\\\").replace('"', '\\"')
     command = (
         line.replace(COMPANION_CALL, PRINT_ARGV)
         .replace("<your model ID>", caller)
-        .replace("<ARGUMENTS without --background>", "$ARGUMENTS")
+        .replace("<QUOTED_FLAGS>", file_flag)
+        .replace("<QUOTED_FLAGS_WITHOUT_BACKGROUND>", file_flag)
+        .replace("<ESCAPED_REQUEST>", escaped_prose)
+        .replace("<ESCAPED_INSTRUCTIONS>", escaped_prose)
+        .replace("<ESCAPED_FOCUS>", escaped_prose)
     )
     proc = subprocess.run(
         [shell, "-c", command],
         cwd=tmp_path,  # an unquoted [1m] glob would fail in zsh and might match a file in bash
-        env={"PATH": "/usr/bin:/bin", "ARGUMENTS": "--base main"},
+        env={"PATH": "/usr/bin:/bin"},
         capture_output=True,
         text=True,
         check=False,
@@ -55,6 +66,13 @@ def test_a_caller_model_reaches_the_companion_as_one_argument(shell, caller, nam
     assert proc.returncode == 0, (name, proc.stderr)
     argv = json.loads(proc.stdout)
     assert argv[argv.index("--caller-model") + 1] == caller, name
+    parsed = build_parser().parse_args(split_arguments(argv))
+    if name == "plan.md":
+        assert parsed.request_file == "packet folder/req.md"
+        assert " ".join(parsed.request) == prose
+    else:
+        assert parsed.instructions_file == "packet folder/in.md"
+        assert " ".join(parsed.focus) == prose
 
 
 def signin_check_snippet() -> str:

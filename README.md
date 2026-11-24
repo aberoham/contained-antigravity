@@ -73,9 +73,11 @@ again if the image is ever deleted, for example by `docker system prune`.
 | `/agy:cancel [job]` | Stops a running job. |
 
 You can also ask Claude in plain words, for example "get agy to review this
-branch" or "ask agy why this test fails". Claude starts the job through the
-plugin's `agy-rescue` subagent and checks agy's quotes and `file:line`
-claims before relaying them.
+branch", "ask agy why this test fails" or "have agy write the pull request
+description for this change". Claude starts code and review jobs through the
+plugin's `agy-rescue` subagent, drafts human-facing prose through the
+`agy-writing` skill, and checks agy's quotes and `file:line` claims before
+relaying them.
 
 Common options:
 

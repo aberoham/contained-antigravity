@@ -3,7 +3,7 @@
 description: Cancel a running agy job in this repository
 argument-hint: '[job-id]'
 disable-model-invocation: true
-allowed-tools: Bash(python3:*), Read, Grep
+allowed-tools: Bash(python3:*)
 ---
 
 !`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agy_companion.py" cancel --raw "$ARGUMENTS"`

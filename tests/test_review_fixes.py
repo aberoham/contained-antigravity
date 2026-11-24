@@ -408,12 +408,33 @@ def test_bare_cancel_result_and_apply_act_only_on_this_sessions_jobs(companion, 
     assert companion.job()["status"] == "needs-approval"
 
 
-def test_read_only_follow_up_keeps_the_task_applicable(companion, repo):
+def test_read_only_follow_up_keeps_the_task_applicable(companion, repo, tmp_path):
     companion.run("task", NO_SANDBOX, "fix it", scenario="task")
     first = companion.job()
-    companion.run("task", NO_SANDBOX, "--resume-last", "--read-only", "explain", scenario="task")
+    assert companion.agy_calls()[-1]["argv"][companion.agy_calls()[-1]["argv"].index("--mode") + 1] == "accept-edits"
+    extra = tmp_path / "extra-docs"
+    extra.mkdir()
+    followup = companion.run(
+        "task",
+        NO_SANDBOX,
+        "--resume-last",
+        "--read-only",
+        "--read-dir",
+        str(extra),
+        f"explain using {extra}/a.md and /opt/unreachable/b.md",
+        scenario="task",
+    )
+    assert "/opt/unreachable/b.md" in followup.stdout and str(extra) not in followup.stdout.splitlines()[0]
     job = companion.job()
     assert job["writable"] is True and job["read_only_round"] is True
+    assert str(extra.resolve()) in job["read_dirs"]
+    second_call = companion.agy_calls()[-1]
+    assert "--mode" not in second_call["argv"]
+    second_prompt = json.loads(second_call["stdin"])["message"]["content"]
+    assert "This round is read-only: file writes are blocked by policy" in second_prompt
+    assert str(extra.resolve()) in second_prompt
+    wrong_iso = companion.run("task", NO_SANDBOX, "--resume-last", "--isolation", "container", "more", check=False)
+    assert wrong_iso.returncode == 2 and "uses host isolation" in wrong_iso.stderr
     policy_file = next(Path(companion.env["AGY_COMPANION_STATE_DIR"]).glob("*/jobs/*/policy.json"))
     policy = json.loads(policy_file.read_text())
     assert policy["writable"] is False
@@ -422,6 +443,7 @@ def test_read_only_follow_up_keeps_the_task_applicable(companion, repo):
     assert "apply cleanly" in proc.stdout
     companion.run("task", NO_SANDBOX, "--resume-last", "write more", scenario="task")
     assert companion.job()["read_only_round"] is False
+    assert companion.agy_calls()[-1]["argv"][companion.agy_calls()[-1]["argv"].index("--mode") + 1] == "accept-edits"
     assert companion.job()["id"] == first["id"]
 
 
