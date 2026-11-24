@@ -26,7 +26,7 @@ NO_SANDBOX = "--no-os-sandbox"
         ("exited", ["failed to connect to the docker API at unix:///x/docker.sock"], "container"),
         ("exited", ["Unable to find image 'agy-sandbox:experiment' locally"], "container"),
         ("timeout", ["job exceeded its time limit"], "timeout"),
-        ("stall", ["no agy progress for 330 s"], "stall"),
+        ("stall", ["no agy progress for 630 s"], "stall"),
         ("exited", ["agy exited with code 3 and no result"], "agy-failed"),
         ("exited", [], "agy-failed"),
     ],
@@ -60,7 +60,7 @@ def test_an_expired_session_fails_at_once_instead_of_waiting_for_the_stall_timer
     started = time.monotonic()
     proc = companion.run("review", NO_SANDBOX, "--model", "high", scenario="session-expired", check=False)
     assert proc.returncode == 11
-    assert time.monotonic() - started < 60  # the stall timer alone is 330 s
+    assert time.monotonic() - started < 60  # the stall timer alone is 630 s
     job = companion.job()
     assert job["failure"] == "signin"
     assert job["rounds"][0]["stalls"] == []  # no resume on another model

@@ -16,24 +16,29 @@ from pathlib import Path
 from typing import Any
 
 AGY_BIN_ENV = "AGY_BIN"
-MIN_VERSION = (1, 1, 12)  # first release where print mode honours --model and --mode
+# 1.5.10 waits 10 minutes, not 5, before it treats a silent model as stalled,
+# so long High-level turns are no longer cancelled while the model thinks.
+MIN_VERSION = (1, 5, 10)
 # Only a container job gets this flag, and only container.wrap adds it:
 # build_command refuses it, so a host-mode command can never carry it.
 SKIP_PERMISSIONS_FLAGS = ("--dangerously-skip-permissions",)
 
 GEMINI_GENERATION = "gemini-4"
 LEVELS = ("low", "medium", "high", "xhigh")
+# Google's default thinking level for each Gemini 4 family, used when
+# `--model` names a family without a level. Any other family gets medium.
+FAMILY_LEVELS = {"neon": "high", "hydrogen": "high", "argon": "medium", "carbon": "medium"}
 DEFAULT_LEVEL = "medium"
 # Antigravity's default family for new users, used when a bare level such as
 # `--model high` has no model with a level to take its family from.
 FALLBACK_FAMILY = "neon"
-# The plugin's choice of Gemini model for each Claude model, from the
-# Artificial Analysis Intelligence Index and measured review times. The
-# README's "Which Gemini model to pick" section gives the reasoning.
+# The plugin's choice of Gemini model for each Claude model: Hydrogen for
+# Haiku and Sonnet, Neon for Opus and Fable, each at Google's default level.
+# The README's "Which Gemini model to pick" section gives the reasoning.
 CALLER_MODELS = {
-    "haiku": "gemini-4-hydrogen-medium",
+    "haiku": "gemini-4-hydrogen-high",
     "sonnet": "gemini-4-hydrogen-high",
-    "opus": "gemini-4-neon-medium",
+    "opus": "gemini-4-neon-high",
     "fable": "gemini-4-neon-high",
 }
 # agy's settings.json stores the model by display name, such as "Gemini 4 Neon (Medium)".
@@ -134,7 +139,7 @@ def resolve_model(
     shorthand = None if lowered.startswith("gemini-") else SHORTHAND.match(lowered)
     if shorthand:
         family, level = shorthand.groups()
-        return f"{GEMINI_GENERATION}-{family}-{level or DEFAULT_LEVEL}"
+        return f"{GEMINI_GENERATION}-{family}-{level or FAMILY_LEVELS.get(family, DEFAULT_LEVEL)}"
     return name
 
 

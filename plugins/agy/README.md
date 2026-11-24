@@ -7,7 +7,7 @@ works on its own copy of your repository, so agy never edits your checkout.
 
 ## Prerequisites
 
-- **agy 1.1.12 or later**, installed and on `PATH`, or `AGY_BIN` set to its
+- **agy 1.5.10 or later**, installed and on `PATH`, or `AGY_BIN` set to its
   path. See https://antigravity.google/docs/cli. The plugin finds the binary
   itself: an `agy` shell function in your interactive shell is not visible to
   Claude Code and is not used.
@@ -73,13 +73,13 @@ Most commands accept `--model`, `--background` and `--isolation
 container|host`. `--model` takes a thinking level (`low`, `medium`, `high`,
 `xhigh`), a family (`neon`), both (`neon-high`), or a full ID from `agy
 models`. Without it, the Gemini model follows the calling Claude model:
-Haiku gets `gemini-4-hydrogen-medium`, Sonnet `gemini-4-hydrogen-high`, Opus
-`gemini-4-neon-medium` and Fable `gemini-4-neon-high`. The commands pass the
+Haiku and Sonnet get `gemini-4-hydrogen-high`, Opus and Fable
+`gemini-4-neon-high`. The commands pass the
 caller's model ID as `--caller-model`. If there is no caller model, a new
 job uses the model chosen in agy's settings (the container sign-in's
 settings for a container job), and with none set agy picks. A resumed job
-keeps its model. A level on its own keeps the family of that model, or uses
-Neon. Gemini 3.x and other models work by full ID. The
+keeps its model. A family on its own gets Google's default level for it.
+A level on its own keeps the family of that model, or uses Neon. Gemini 3.x and other models work by full ID. The
 [main README](../../README.md#which-gemini-model-to-pick) explains the
 mapping. The default isolation is the container when Docker, the image and a
 sign-in file are all present, otherwise the host; `/agy:setup` says
@@ -215,10 +215,11 @@ Claude, and the tokens used, so you can see what the approval loop costs.
 
 ## Stalls
 
-agy sometimes stalls: its log shows `stream idle timeout (5m0s): context
-deadline exceeded` while it retries the model without output. The job runner
-treats that log line, or about five and a half minutes without a stream
-event, as a stall. While a tool step is running, the stream is silent until
+agy sometimes stalls: its log shows `stream idle timeout: context deadline
+exceeded` while it retries the model without output. The timer is agy's
+own, 10 minutes since agy 1.5.10 (5 minutes before). The job runner treats
+that log line, or about ten and a half minutes without a stream event, as a
+stall. While a tool step is running, the stream is silent until
 the tool finishes, so the runner then waits up to 30 minutes. On a stall it
 stops agy and everything agy started, and resumes the same conversation on
 the same model, up to two times. It never moves a job to a lower model: a stall

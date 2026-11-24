@@ -141,6 +141,16 @@ on 24 October 2026 with agy 1.4.7, unless marked otherwise.
   `gemini-4-argon-low`, and one returned only a partial review (reported by
   the session that ran them). A stall is a service fault, not a sign the
   model is wrong for the task, so the runner now resumes on the same model.
+- **The idle timeout is agy's own timer, not Google's load balancer**
+  (24 November 2026). agy 1.3.6 added a 5-minute "no data, cancel and
+  retry" timer, and the 1.5.10 release note (17 November) raised it to 10
+  minutes because long, high-effort responses were being "canceled and
+  restarted from scratch". Issue 1402 (open) asks for a configurable timer
+  and server keep-alives. Stalls reported on 1.5.11 to 1.5.14 are on Carbon
+  and Argon, which maintainers put down to 503 "No capacity" queuing and
+  mid-stream resets. The plugin now needs 1.5.10, its own stall timer is
+  630 s to sit just above agy's, and the Opus and Haiku defaults moved to
+  Google's default High level.
 - In a Claude Code session that has another plugin's hooks active,
   `CLAUDE_PLUGIN_DATA` can be set in the Bash tool's environment to that
   plugin's data directory; the job state then lands there. Harmless, but
