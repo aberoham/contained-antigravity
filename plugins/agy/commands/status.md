@@ -3,7 +3,7 @@
 description: Show active and recent agy jobs for this repository
 argument-hint: '[job-id] [--all]'
 disable-model-invocation: true
-allowed-tools: Bash(python3:*), Read, Grep
+allowed-tools: Bash(python3:*)
 ---
 
 !`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agy_companion.py" status --raw "$ARGUMENTS"`

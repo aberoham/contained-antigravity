@@ -83,7 +83,7 @@ def rounds_table(job: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def job_detail(job: dict[str, Any]) -> str:
+def job_detail(job: dict[str, Any], stored: dict[str, Any] | None = None) -> str:
     lines = [
         f"Job: {job.get('id')}",
         f"Kind: {job.get('kind')}",
@@ -112,11 +112,11 @@ def job_detail(job: dict[str, Any]) -> str:
     table = rounds_table(job)
     if table:
         lines += ["", table]
-    lines += ["", next_steps(job)]
+    lines += ["", next_steps(job, stored)]
     return "\n".join(lines)
 
 
-def next_steps(job: dict[str, Any]) -> str:
+def next_steps(job: dict[str, Any], stored: dict[str, Any] | None = None) -> str:
     job_id = job.get("id")
     status = job.get("status")
     if status in ("queued", "running", "resuming"):
@@ -129,7 +129,13 @@ def next_steps(job: dict[str, Any]) -> str:
             f"Run the ones you judge safe from the working copy {job.get('worktree')}, save their output to a file, "
             f"then `/agy:resume {job_id} <file>`. Or read the result as it is with /agy:result {job_id}."
         )
-    if status == "completed" and job.get("writable"):
+    if "has_changes" in job:
+        has_changes = bool(job["has_changes"])
+    elif isinstance(stored, dict):
+        has_changes = bool(stored.get("changed_files") or stored.get("changed_paths"))
+    else:
+        has_changes = True
+    if status == "completed" and job.get("writable") and has_changes:
         return (
             f"Next: /agy:result {job_id} to read the report and changes; "
             f"/agy:apply {job_id} to apply them to your checkout."
@@ -224,5 +230,5 @@ def _result_text(job: dict[str, Any], stored: dict[str, Any] | None) -> str:
         parts += ["", "Files changed in the job's working copy:", stored["changed_files"]]
     elif job.get("writable") and not job.get("error"):
         parts += ["", "agy changed no files."]
-    parts += ["", next_steps(job)]
+    parts += ["", next_steps(job, stored)]
     return "\n".join(parts)
