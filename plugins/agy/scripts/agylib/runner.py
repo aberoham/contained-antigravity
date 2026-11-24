@@ -1,7 +1,7 @@
 """Run one agy turn for a job, follow its event stream, and recover from stalls.
 
-agy can stall on a model for minutes: its log shows "stream idle timeout
-(5m0s)" while it retries quietly. The worker treats that log line, or a long
+agy can stall on a model for minutes: its log shows "stream idle timeout"
+while it retries quietly. The worker treats that log line, or a long
 gap with no stream event, as a stall. It stops agy and resumes the same
 conversation on the same model. A stall is a service fault, not a sign that the
 model is wrong for the task, so the job never changes model on its own.
@@ -26,7 +26,7 @@ from . import agybin, container, failure, gitctx, sandbox
 from .policy import WRITE_TOOLS
 from .state import JobStore, now_iso, read_json, write_json
 
-DEFAULT_STALL_SECONDS = 330  # agy's own idle timeout is 5 minutes
+DEFAULT_STALL_SECONDS = 630  # agy's own idle timeout is 10 minutes since 1.5.10
 # While a tool step is ACTIVE the stream is silent until the tool finishes
 # (a hook or a long command), so allow much longer before calling it a stall.
 DEFAULT_TOOL_STALL_SECONDS = 1800

@@ -170,7 +170,7 @@ def test_sign_in_error_from_an_earlier_round_is_not_reused(companion):
 def test_setup_reports_fake_agy(companion):
     proc = companion.run("setup", "--json")
     report = json.loads(proc.stdout)
-    assert report["agy_version"] == "1.4.7"
+    assert report["agy_version"] == "1.5.15"
     assert report["signed_in"] is True
     assert report["token_file"] is False
 

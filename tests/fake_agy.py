@@ -129,10 +129,10 @@ def main() -> int:
     argv = sys.argv[1:]
     calls = os.environ.get("FAKE_AGY_CALLS")
     if argv == ["--version"]:
-        print("1.4.7")
+        print("1.5.15")
         return 0
     if argv == ["models"]:
-        # agy 1.4.7 prints an error and still exits 0 when it is not signed in.
+        # agy prints an error and still exits 0 when it is not signed in.
         print("Fetching available models...")
         if os.environ.get("FAKE_AGY_SCENARIO") == "auth":
             print("Error: Please sign in to view available models. Launch the CLI without arguments to sign in.")
