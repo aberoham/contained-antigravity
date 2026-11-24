@@ -78,7 +78,8 @@ Haiku and Sonnet get `gemini-4-hydrogen-high`, Opus and Fable
 caller's model ID as `--caller-model`. If there is no caller model, a new
 job uses the model chosen in agy's settings (the container sign-in's
 settings for a container job), and with none set agy picks. A resumed job
-keeps its model. A family on its own gets Google's default level for it.
+keeps its model. A Gemini 4 family on its own gets Google's default level
+for it; any other name gets Medium.
 A level on its own keeps the family of that model, or uses Neon. Gemini 3.x and other models work by full ID. The
 [main README](../../README.md#which-gemini-model-to-pick) explains the
 mapping. The default isolation is the container when Docker, the image and a

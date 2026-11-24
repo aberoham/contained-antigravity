@@ -84,9 +84,10 @@ Common options:
   `agy models`. Without it, a new job gets the Gemini model mapped to the
   Claude model you are running (see the table below). If it cannot tell, it
   uses the model set in agy itself, and with none set agy picks. A resumed
-  job keeps its model. A family on its own gets Google's default level for
-  it (High for Neon and Hydrogen, Medium for Argon and Carbon). A level on
-  its own keeps the family of that model, or uses Neon.
+  job keeps its model. A Gemini 4 family on its own gets Google's default
+  level for it (High for Neon and Hydrogen, Medium for Argon and Carbon);
+  any other name gets Medium. A level on its own keeps the family of that
+  model, or uses Neon.
 - `--background` returns at once. Check on the job with `/agy:status`.
 - `--isolation container|host` overrides the isolation that `/agy:setup`
   reported.
@@ -126,8 +127,7 @@ claim by Google or Anthropic.
 | Carbon | Between Opus 5.5 and Fable 5.2 | Index 60 at High; Fable scores 62 at High and XHigh. | median 5 to 10 min, longest 13 min 20 s | Hard, long-running tasks in the background |
 | Argon | Opus 5.5 at medium | Index 48 at Medium, 50 at High; Opus scores 48 at medium. | about 1 min at Medium, 5 at High | Quick answers at lower token cost |
 
-- Hydrogen High scores well above Haiku 5.5 at Max (36), so Haiku callers
-  get a stronger reviewer than themselves.
+- Hydrogen High scores 51 on the index, against 36 for Haiku 5.5 at Max.
 - No Gemini 4 model reaches Fable 5.2 at Max (65).
 - "Index" is the Artificial Analysis Intelligence Index v5, read on
   20 November 2026. Review times are from this plugin on one seat and
@@ -141,10 +141,10 @@ Argon scores below Neon and Hydrogen at their default levels; use
 `--model argon` when speed and token cost matter more.
 
 **Long turns.** Since agy 1.5.10, agy waits 10 minutes, not 5, before it
-treats a silent model as stalled, so High-level turns are no longer cut
-off while the model thinks. That is why the plugin needs 1.5.10 or later.
-Carbon and Argon can still stall when Google's service is short of
-capacity (agy issue
+treats a silent model as stalled and retries the turn, so a model can
+think for up to 10 minutes without output. That is why the plugin needs
+1.5.10 or later. A turn that stays silent longer is still cancelled and
+retried, and Carbon and Argon still stall at times (agy issue
 [1402](https://github.com/google-antigravity/antigravity-cli/issues/1402)).
 
 Sources:

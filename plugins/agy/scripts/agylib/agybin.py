@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import Any
 
 AGY_BIN_ENV = "AGY_BIN"
-# 1.5.10 waits 10 minutes, not 5, before it treats a silent model as stalled,
-# so long High-level turns are no longer cancelled while the model thinks.
+# 1.5.10 waits 10 minutes, not 5, before it treats a silent model as stalled
+# and retries the turn, which gives High-level turns room to think.
 MIN_VERSION = (1, 5, 10)
 # Only a container job gets this flag, and only container.wrap adds it:
 # build_command refuses it, so a host-mode command can never carry it.
