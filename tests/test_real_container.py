@@ -89,8 +89,13 @@ def _companion(scratch: Path, cwd: Path, *args: str) -> subprocess.CompletedProc
     token = scratch / "container-home" / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
     token.parent.mkdir(parents=True, exist_ok=True)
     token.write_text('{"token": "fake"}')
+    # A home of its own keeps the developer's agy sign-in, file or Keychain,
+    # out of the job; DOCKER_CONFIG keeps the docker client's context.
+    (scratch / "home").mkdir(exist_ok=True)
     env = dict(
         os.environ,
+        HOME=str(scratch / "home"),
+        DOCKER_CONFIG=os.environ.get("DOCKER_CONFIG") or str(Path.home() / ".docker"),
         AGY_BIN=str(TESTS / "fake_agy.py"),
         AGY_IMAGE=IMAGE,
         AGY_COMPANION_STATE_DIR=str(scratch / "state"),

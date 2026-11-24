@@ -23,3 +23,10 @@ pythonpath = ["plugins/agy/scripts", "tests"]
 [tool.ty.environment]
 python-version = "3.9"
 extra-paths = ["plugins/agy/scripts", "tests"]
+
+[dependency-groups]
+dev = [
+    "pytest==9.2.0 ; python_full_version >= '3.10'",
+    "ruff==0.17.6",
+    "ty==0.0.107",
+]

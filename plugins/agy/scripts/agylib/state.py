@@ -18,7 +18,7 @@ import secrets
 import shutil
 import subprocess
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable
@@ -109,7 +109,7 @@ def read_json(path: Path, default: Any = None) -> Any:
 
 
 @contextmanager
-def locked(path: Path) -> Iterator[None]:
+def locked(path: Path) -> Generator[None, None, None]:
     """Hold an exclusive lock on path + '.lock' for a read-modify-write."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(f"{path}.lock", "w") as lock:

@@ -40,12 +40,12 @@ workstation.
    ```
 
    It builds the image for your user, and on later runs restarts Colima if
-   it has stopped. Container jobs reuse your ordinary `agy` sign-in from
-   `~/.gemini/antigravity-cli/antigravity-oauth-token`. If your agy keeps its
-   sign-in in the keychain instead, run
-   `~/.claude/plugins/marketplaces/agy-cc/containers/signin.sh` once in a
-   terminal window to make a container-only sign-in. Skip this step if you
-   only want host mode.
+   it has stopped. Container jobs reuse your ordinary `agy` sign-in, from
+   `~/.gemini/antigravity-cli/antigravity-oauth-token` or, on macOS, from
+   the Keychain. On a Linux host whose agy keeps its sign-in in the system
+   keyring, run `~/.claude/plugins/marketplaces/agy-cc/containers/signin.sh`
+   once in a terminal window to make a container-only sign-in. Skip this
+   step if you only want host mode.
 
 3. In Claude Code, run `/agy:setup`. It checks that agy is installed and
    signed in, shows the Google Cloud project agy will use, and says whether

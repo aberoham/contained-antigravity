@@ -87,14 +87,19 @@ Placeholders are in capitals.
 
 ## Quirks
 
-- **The sign-in token can be too large for the macOS keychain.** The log
-  shows `data passed to Set was too big` and agy asks for sign-in at every
-  launch. Setting `WSL_INTEROP=1` makes agy store the token in
+- **The sign-in token was too large for the macOS keychain.** Older
+  versions logged `data passed to Set was too big` and asked for sign-in at
+  every launch. Setting `WSL_INTEROP=1` makes agy store the token in
   `~/.gemini/antigravity-cli/antigravity-oauth-token` instead (reported,
-  [issue 1037](https://github.com/google-antigravity/antigravity-cli/issues/1037);
-  observed: our managed install wraps agy with this). The 1.4.6 changelog
-  says it is fixed; we have not tested without the workaround.
-  That file holds a refresh token: treat it as a credential.
+  [issue 1037](https://github.com/google-antigravity/antigravity-cli/issues/1037)).
+  On agy 1.5.15 without the variable, a workforce sign-in saved to the
+  Keychain and survived a restart, and the token file kept only a null
+  token (observed, 24 November 2026). The stored value was about 3.3 KB
+  encoded, under go-keyring's 4,096-byte command limit, so a sign-in with
+  more group claims may still fail. Either store holds a refresh token, and
+  `security find-generic-password -s gemini -a antigravity -w` reads the
+  Keychain copy without a prompt: treat both as credentials. Container jobs
+  copy the sign-in from whichever store is newer.
 - **Seat detection can fail with workforce identity federation.** agy's
   self-assignment call (`SelfAssignLicense`) returns `400 FAILED_PRECONDITION`
   even when a seat is assigned (reported,
@@ -143,7 +148,6 @@ Placeholders are in capitals.
 
 ## Not confirmed
 
-- Whether the `WSL_INTEROP=1` workaround is still needed on agy 1.4.6 or later.
 - Exactly what makes `SelfAssignLicense` fail.
 - Whether Application Default Credentials can ever use a seat.
 - Whether Google Workspace accounts have a separate sign-in path.

@@ -11,9 +11,10 @@ the mount: the host trusts them, so nothing inside the container may write
 them.
 
 The job's home is seeded at the start of every round with a copy of the
-newer agy sign-in, the host's own or the one containers/signin.sh wrote, and
-is never shared: one job cannot leave a setting, a hook or a cached package behind
-for the next, whatever repository it was reviewing.
+newest agy sign-in: the host's own, from its token file or the macOS
+Keychain, or the one containers/signin.sh wrote. The home is never shared:
+one job cannot leave a setting, a hook or a cached package behind for the
+next, whatever repository it was reviewing.
 
 Inside the container agy runs with --dangerously-skip-permissions: it may
 run any command and edit any file it can reach, and what it can reach is the
@@ -23,12 +24,18 @@ host never runs git over files agy has written.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import os
+import pwd
+import re
 import secrets
 import shutil
 import stat
 import subprocess
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import agybin
@@ -73,6 +80,10 @@ def image_name() -> str:
 
 
 TOKEN_FILE = "antigravity-oauth-token"  # noqa: S105 -- a file name, not a secret
+KEYCHAIN_TOOL = "/usr/bin/security"
+KEYCHAIN_SERVICE = "gemini"
+KEYCHAIN_ACCOUNT = "antigravity"
+KEYRING_PREFIX = "go-keyring-base64:"
 DEFAULT_SETTINGS = {"enableTerminalSandbox": False}
 
 
@@ -100,17 +111,105 @@ def _readable_token(token: Path) -> tuple[float, bytes] | None:
     try:
         mtime = token.stat().st_mtime
         data = token.read_bytes()
-        parsed = json.loads(data)
-    except (OSError, ValueError):
+    except OSError:
         return None
-    return (mtime, data) if isinstance(parsed, dict) and parsed.get("token") else None
+    checked = _signin_json(data)
+    return (mtime, checked) if checked else None
+
+
+def _signin_json(data: bytes) -> bytes | None:
+    """`data` when it is a JSON object holding a token, the shape of agy's token file; otherwise None."""
+    try:
+        parsed = json.loads(data)
+    except (ValueError, RecursionError):
+        return None
+    return data if isinstance(parsed, dict) and parsed.get("token") else None
+
+
+def _keychain_signin() -> tuple[float, bytes] | None:
+    """The host agy's sign-in from the macOS Keychain as token-file bytes, with its modification time.
+
+    Unless WSL_INTEROP is set, agy on macOS keeps its sign-in in the login
+    Keychain (service "gemini", account "antigravity") and leaves a null
+    token in its token file. The Keychain value is the JSON the file would
+    hold, stored base64-encoded behind go-keyring's prefix, so a job gets
+    what a file sign-in would have given it. Reading it raises no prompt,
+    because go-keyring writes the item through /usr/bin/security.
+
+    The Keychain belongs to the user rather than to $HOME, so it is read only
+    when $HOME is the user's own home directory. A test, or anything else
+    that points HOME elsewhere, gets no sign-in from it.
+
+    Any failure means no sign-in from the Keychain, never an error, so a
+    usable token file or container sign-in still serves the job.
+    """
+    if sys.platform != "darwin" or Path.home() != _own_home():
+        return None
+    query = [KEYCHAIN_TOOL, "find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", KEYCHAIN_ACCOUNT]
+    try:
+        attributes = _ask_keychain(query)
+        value = _ask_keychain([*query, "-w"])
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if attributes.returncode != 0 or value.returncode != 0:
+        return None
+    checked = _signin_json(_keyring_value(value.stdout.strip()))
+    return (_keychain_mtime(attributes.stdout), checked) if checked else None
+
+
+def _ask_keychain(command: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(command, capture_output=True, text=True, errors="replace", timeout=10, check=False)
+
+
+def _own_home() -> Path | None:
+    """The user's home directory from the user database, or None when it has no entry."""
+    try:
+        return Path(pwd.getpwuid(os.getuid()).pw_dir)
+    except KeyError:
+        return None
+
+
+def _keyring_value(stored: str) -> bytes:
+    """The bytes go-keyring stored: base64 behind its prefix, or the plain text without one."""
+    if not stored.startswith(KEYRING_PREFIX):
+        return stored.encode()
+    try:
+        return base64.b64decode(stored[len(KEYRING_PREFIX) :].encode("ascii"), validate=True)
+    except (binascii.Error, UnicodeEncodeError):
+        return b""
+
+
+def _keychain_mtime(attributes: str) -> float:
+    """The item's modification time from `security find-generic-password` output, or 0 when absent.
+
+    The line reads `"mdat"<timedate>=0x... "20261124033118Z\\000"`, a UTC time.
+    """
+    match = re.search(r'"mdat"<timedate>=\S+\s+"(\d{14})Z', attributes)
+    if not match:
+        return 0.0
+    try:
+        stamp = datetime.strptime(match.group(1), "%Y%m%d%H%M%S")
+    except ValueError:
+        return 0.0
+    return stamp.replace(tzinfo=timezone.utc).timestamp()
 
 
 def _newest_signin() -> tuple[str, Path, bytes] | None:
-    """The label, directory and checked token bytes of the newer readable sign-in."""
+    """The label, directory and checked token bytes of the newest readable sign-in.
+
+    The host's sign-in is in its token file or in the Keychain, depending on
+    whether agy ran with WSL_INTEROP set. Both are labelled "host" and take
+    their settings from the host's agy home.
+    """
+    host = agybin.agy_home()
+    signin = signin_home() / ".gemini" / "antigravity-cli"
+    candidates = (
+        ("host", host, _readable_token(host / TOKEN_FILE)),
+        ("host", host, _keychain_signin()),
+        ("container", signin, _readable_token(signin / TOKEN_FILE)),
+    )
     best: tuple[float, str, Path, bytes] | None = None
-    for label, directory in (("host", agybin.agy_home()), ("container", signin_home() / ".gemini" / "antigravity-cli")):
-        readable = _readable_token(directory / TOKEN_FILE)
+    for label, directory, readable in candidates:
         if readable is not None and (best is None or readable[0] > best[0]):
             best = (readable[0], label, directory, readable[1])
     return best[1:] if best else None
@@ -119,19 +218,16 @@ def _newest_signin() -> tuple[str, Path, bytes] | None:
 def signin_source() -> tuple[str, Path] | None:
     """Which sign-in a job copies: ("host", dir) or ("container", dir), whichever token is newer.
 
-    The host's own `agy` sign-in, in ~/.gemini/antigravity-cli, works inside
-    a container unchanged (a fresh container listed the Gemini 4 Argon
-    models with a copy, 7 November 2026), so a morning sign-in on the host
-    covers container jobs too. The container sign-in from containers/signin.sh
-    is used when the host keeps its token in the keychain instead of a file,
-    or was signed in more recently.
+    The host's own `agy` sign-in works inside a container unchanged (a fresh
+    container listed the Gemini 4 Argon models with a copy, 7 November
+    2026), so a morning sign-in on the host covers container jobs too. It is
+    read from ~/.gemini/antigravity-cli or, on macOS, from the Keychain. The
+    container sign-in from containers/signin.sh is used when it is newer,
+    or when the host has no sign-in a container can use, as on a Linux host
+    whose agy keeps its token in the Secret Service keyring.
     """
     found = _newest_signin()
     return (found[0], found[1]) if found else None
-
-
-def container_token_present() -> bool:
-    return signin_source() is not None
 
 
 def _job_settings(label: str, source: Path) -> bytes:
@@ -354,6 +450,7 @@ def report() -> dict[str, object]:
     reachable = bool(binary) and daemon_reachable()
     present = reachable and image_present()
     user = image_user() if present else None
+    source = signin_source()
     return {
         "docker": str(binary) if binary else None,
         "docker_reachable": reachable,
@@ -363,8 +460,8 @@ def report() -> dict[str, object]:
         "image_user_matches": present and image_user_matches(user),
         "state_mountable": present and state_mountable(),
         "signin_home": str(signin_home()),
-        "container_signed_in": container_token_present(),
-        "signin_source": (signin_source() or ("none",))[0],
+        "container_signed_in": source is not None,
+        "signin_source": (source or ("none",))[0],
     }
 
 
