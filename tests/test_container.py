@@ -286,6 +286,7 @@ def test_apply_uses_the_baseline_snapshot_not_git_in_the_copy(contained, repo):
 
 
 def test_wrap_puts_every_mount_at_its_host_path(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))  # keeps the developer's Keychain sign-in out of the job
     monkeypatch.setenv("AGY_COMPANION_STATE_DIR", str(tmp_path / "state"))
     monkeypatch.setenv("AGY_CONTAINER_HOME", str(tmp_path / "container-home"))
     monkeypatch.setenv("PATH", str(tmp_path))
@@ -365,7 +366,6 @@ def test_a_half_written_or_empty_token_is_never_copied(tmp_path, monkeypatch):
     (host / "antigravity-oauth-token").write_text('{"token": "ho')  # agy is rewriting it
     os.utime(host / "antigravity-oauth-token", (3000, 3000))
     assert container.signin_source() is None
-    assert not container.container_token_present()
     _token(signin, "container", 1000)
     assert container.signin_source() == ("container", signin)
     (signin / "antigravity-oauth-token").write_text("{}")
@@ -450,9 +450,39 @@ def test_the_newest_of_token_file_keychain_and_container_sign_in_wins(tmp_path, 
 
 def test_an_unusable_keychain_item_gives_no_sign_in(tmp_path, monkeypatch):
     host, _ = _signins(tmp_path, monkeypatch)
-    for stored in (None, container.KEYRING_PREFIX + "not base64!", _keyring({"token": None}), "not json"):
+    unusable = (
+        None,
+        container.KEYRING_PREFIX + "not base64!",
+        container.KEYRING_PREFIX + "é",
+        _keyring({"token": None}),
+        "not json",
+        "[" * 100_000,
+    )
+    for stored in unusable:
         _keychain(monkeypatch, tmp_path / "home", stored)
-        assert container.signin_source() is None, stored
+        assert container.signin_source() is None, stored[:20] if stored else stored
+
+
+def test_a_keychain_that_cannot_be_asked_gives_no_sign_in(tmp_path, monkeypatch):
+    _signins(tmp_path, monkeypatch)
+    calls = _keychain(monkeypatch, tmp_path / "home", _keyring({"token": "keychain"}))
+
+    def times_out(command, **kwargs):
+        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+    monkeypatch.setattr(container.subprocess, "run", times_out)
+    assert container.signin_source() is None
+    monkeypatch.setattr(container.sys, "platform", "linux")
+    monkeypatch.setattr(container.subprocess, "run", lambda command, **kwargs: calls.append(command))
+    assert container.signin_source() is None
+    monkeypatch.setattr(container.sys, "platform", "darwin")
+
+    def no_such_user(uid):
+        raise KeyError(uid)
+
+    monkeypatch.setattr(container.pwd, "getpwuid", no_such_user)
+    assert container.signin_source() is None
+    assert calls == []
 
 
 def test_the_keychain_is_not_read_when_home_is_not_the_users_own(tmp_path, monkeypatch):
@@ -462,14 +492,15 @@ def test_the_keychain_is_not_read_when_home_is_not_the_users_own(tmp_path, monke
     assert calls == []
 
 
-def test_a_keychain_item_without_a_modification_time_loses_to_any_file(tmp_path, monkeypatch):
-    host, _ = _signins(tmp_path, monkeypatch)
-    _keychain(monkeypatch, tmp_path / "home", _keyring({"token": "keychain"}), mdat="")
-    alone = container._newest_signin()
-    assert alone is not None and json.loads(alone[2]) == {"token": "keychain"}
-    _token(host, "file", 1)
-    with_file = container._newest_signin()
-    assert with_file is not None and json.loads(with_file[2]) == {"token": "file"}
+def test_a_keychain_item_without_a_valid_modification_time_loses_to_any_file(tmp_path, monkeypatch):
+    for mdat in ("", "20261399999999"):
+        host, _ = _signins(tmp_path / mdat, monkeypatch)
+        _keychain(monkeypatch, tmp_path / mdat / "home", _keyring({"token": "keychain"}), mdat=mdat)
+        alone = container._newest_signin()
+        assert alone is not None and json.loads(alone[2]) == {"token": "keychain"}
+        _token(host, "file", 1)
+        with_file = container._newest_signin()
+        assert with_file is not None and json.loads(with_file[2]) == {"token": "file"}
 
 
 def test_a_container_that_survives_removal_fails_the_job(contained):

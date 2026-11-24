@@ -121,7 +121,7 @@ def _signin_json(data: bytes) -> bytes | None:
     """`data` when it is a JSON object holding a token, the shape of agy's token file; otherwise None."""
     try:
         parsed = json.loads(data)
-    except ValueError:
+    except (ValueError, RecursionError):
         return None
     return data if isinstance(parsed, dict) and parsed.get("token") else None
 
@@ -139,13 +139,16 @@ def _keychain_signin() -> tuple[float, bytes] | None:
     The Keychain belongs to the user rather than to $HOME, so it is read only
     when $HOME is the user's own home directory. A test, or anything else
     that points HOME elsewhere, gets no sign-in from it.
+
+    Any failure means no sign-in from the Keychain, never an error, so a
+    usable token file or container sign-in still serves the job.
     """
-    if sys.platform != "darwin" or Path.home() != Path(pwd.getpwuid(os.getuid()).pw_dir):
+    if sys.platform != "darwin" or Path.home() != _own_home():
         return None
     query = [KEYCHAIN_TOOL, "find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", KEYCHAIN_ACCOUNT]
     try:
-        attributes = subprocess.run(query, capture_output=True, text=True, timeout=10, check=False)
-        value = subprocess.run([*query, "-w"], capture_output=True, text=True, timeout=10, check=False)
+        attributes = _ask_keychain(query)
+        value = _ask_keychain([*query, "-w"])
     except (OSError, subprocess.TimeoutExpired):
         return None
     if attributes.returncode != 0 or value.returncode != 0:
@@ -154,13 +157,25 @@ def _keychain_signin() -> tuple[float, bytes] | None:
     return (_keychain_mtime(attributes.stdout), checked) if checked else None
 
 
+def _ask_keychain(command: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(command, capture_output=True, text=True, errors="replace", timeout=10, check=False)
+
+
+def _own_home() -> Path | None:
+    """The user's home directory from the user database, or None when it has no entry."""
+    try:
+        return Path(pwd.getpwuid(os.getuid()).pw_dir)
+    except KeyError:
+        return None
+
+
 def _keyring_value(stored: str) -> bytes:
     """The bytes go-keyring stored: base64 behind its prefix, or the plain text without one."""
     if not stored.startswith(KEYRING_PREFIX):
         return stored.encode()
     try:
-        return base64.b64decode(stored[len(KEYRING_PREFIX) :], validate=True)
-    except binascii.Error:
+        return base64.b64decode(stored[len(KEYRING_PREFIX) :].encode("ascii"), validate=True)
+    except (binascii.Error, UnicodeEncodeError):
         return b""
 
 
@@ -172,7 +187,11 @@ def _keychain_mtime(attributes: str) -> float:
     match = re.search(r'"mdat"<timedate>=\S+\s+"(\d{14})Z', attributes)
     if not match:
         return 0.0
-    return datetime.strptime(match.group(1), "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc).timestamp()
+    try:
+        stamp = datetime.strptime(match.group(1), "%Y%m%d%H%M%S")
+    except ValueError:
+        return 0.0
+    return stamp.replace(tzinfo=timezone.utc).timestamp()
 
 
 def _newest_signin() -> tuple[str, Path, bytes] | None:
@@ -209,10 +228,6 @@ def signin_source() -> tuple[str, Path] | None:
     """
     found = _newest_signin()
     return (found[0], found[1]) if found else None
-
-
-def container_token_present() -> bool:
-    return signin_source() is not None
 
 
 def _job_settings(label: str, source: Path) -> bytes:
@@ -435,6 +450,7 @@ def report() -> dict[str, object]:
     reachable = bool(binary) and daemon_reachable()
     present = reachable and image_present()
     user = image_user() if present else None
+    source = signin_source()
     return {
         "docker": str(binary) if binary else None,
         "docker_reachable": reachable,
@@ -444,8 +460,8 @@ def report() -> dict[str, object]:
         "image_user_matches": present and image_user_matches(user),
         "state_mountable": present and state_mountable(),
         "signin_home": str(signin_home()),
-        "container_signed_in": container_token_present(),
-        "signin_source": (signin_source() or ("none",))[0],
+        "container_signed_in": source is not None,
+        "signin_source": (source or ("none",))[0],
     }
 
 
