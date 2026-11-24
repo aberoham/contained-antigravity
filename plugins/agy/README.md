@@ -20,9 +20,10 @@ works on its own copy of your repository, so agy never edits your checkout.
   `containers/build.sh` from the source repository. It starts Colima if it
   is stopped and builds the image for your user; run it again if the image
   is ever deleted. Container jobs use a copy of your ordinary `agy` sign-in,
-  so there is no second sign-in. `containers/signin.sh` makes a separate
-  container-only sign-in, for a host whose agy keeps its token in the
-  keychain rather than in `~/.gemini/antigravity-cli/antigravity-oauth-token`.
+  from `~/.gemini/antigravity-cli/antigravity-oauth-token` or, on macOS, the
+  Keychain, so there is no second sign-in. `containers/signin.sh` makes a
+  separate container-only sign-in, for a Linux host whose agy keeps its
+  token in the system keyring.
   Without Docker and the image the plugin falls back to host mode,
   described below. The image carries `git`, `curl`, `jq`, `python3` and `uv`,
   so agy can run a Python repository's tests; add what your repositories
@@ -83,7 +84,7 @@ for it; any other name gets Medium.
 A level on its own keeps the family of that model, or uses Neon. Gemini 3.x and other models work by full ID. The
 [main README](../../README.md#which-gemini-model-to-pick) explains the
 mapping. The default isolation is the container when Docker, the image and a
-sign-in file are all present, otherwise the host; `/agy:setup` says
+sign-in a container can copy are all present, otherwise the host; `/agy:setup` says
 which, and `/agy:status` shows it per job.
 
 ## How a job is contained
@@ -105,8 +106,9 @@ home) and the plugin's own files (read-only). Nothing else from your machine
 is mounted, so there is no `~/.aws`, `~/.ssh` or keychain to read, and the
 job record, the baseline snapshot and the result, which the host trusts, are
 out of the container's reach. The job's home belongs to that job alone: it
-starts empty, receives a copy of the newer agy sign-in at the start of every
-round (your own from `~/.gemini/antigravity-cli`, or the container-only one
+starts empty, receives a copy of the newest agy sign-in at the start of every
+round (your own from `~/.gemini/antigravity-cli` or, on macOS, the Keychain,
+or the container-only one
 from `~/.gemini/agy-container-home`; neither directory is mounted into a
 job), with settings that carry only the Google Cloud project and location, and keeps agy's conversation between rounds so a
 resume works. A job therefore cannot leave a setting, a hook or a cached

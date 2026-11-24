@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Make a container-only agy sign-in. Usually not needed: container jobs copy
 # the newer of this sign-in and the host's own `agy` sign-in, so signing in
-# with `agy` on the host covers them. Use this when the host's agy keeps its
-# token in the keychain rather than a file. The sign-in is interactive, so
+# with `agy` on the host covers them, whether agy keeps the token in a file
+# or in the macOS Keychain. Use this on a Linux host whose agy keeps its
+# token in the system keyring. The sign-in is interactive, so
 # run this from a real terminal. agy's OAuth token is written to the
 # container home (~/.gemini/agy-container-home), not to the host's own
 # ~/.gemini/antigravity-cli.
