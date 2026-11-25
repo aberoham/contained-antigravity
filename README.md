@@ -24,6 +24,8 @@ For a local branch preview, substitute `/plugin marketplace add ./`. Run `/agy:s
 
 ### Codex CLI
 
+While PR #36 is open, install the preview from the branch with `codex plugin marketplace add aberoham/contained-antigravity --ref feat/codex-agy-review`, then `codex plugin add agy@agy-cc` (current install ID). After merge, the plain repo command follows the default branch.
+
 Install directly from GitHub without cloning the repository:
 
 ```bash
