@@ -11,13 +11,6 @@ Run isolated read-only code reviews and adversarial reviews with Google's Antigr
 
 ## Installation
 
-Start from a trusted local clone (use a checkout containing Codex support for the Codex preview):
-
-```sh
-git clone https://github.com/aberoham/contained-antigravity.git
-cd contained-antigravity
-```
-
 ### Claude Code
 
 Add the marketplace and install:
@@ -29,11 +22,20 @@ Add the marketplace and install:
 
 For a local branch preview, substitute `/plugin marketplace add ./`. Run `/agy:setup` to verify your setup, then try `/agy:review`. Update existing installs with `/plugin marketplace update agy-cc` and the `/plugin` menu.
 
-### Codex
+### Codex CLI
 
-From a checkout with Codex support, run:
+Install directly from GitHub without cloning the repository:
 
-```sh
+```bash
+codex plugin marketplace add aberoham/contained-antigravity
+codex plugin add agy@agy-cc
+```
+
+This installs the `agy:agy-review` skill. If you want to build the optional container image, run the build from a source checkout or the downloaded marketplace root.
+
+For plugin development from a local checkout, add the repository root as a local marketplace source instead:
+
+```bash
 codex plugin marketplace add .
 codex plugin add agy@agy-cc
 ```

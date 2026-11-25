@@ -11,7 +11,7 @@ Run isolated read-only and adversarial code reviews with Google's Antigravity CL
 ## Install
 
 - **Claude Code:** Run `/plugin marketplace add aberoham/contained-antigravity` (or `/plugin marketplace add ./` locally), then `/plugin install agy@agy-cc` and `/agy:setup`. Update via `/plugin marketplace update agy-cc` and `/plugin`.
-- **Codex:** In a checkout with Codex support, run `codex plugin marketplace add .` and `codex plugin add agy@agy-cc`, then start a thread using `agy:agy-review`.
+- **Codex CLI:** Run `codex plugin marketplace add aberoham/contained-antigravity` then `codex plugin add agy@agy-cc` to install `agy:agy-review` without cloning (for local plugin development, run `codex plugin marketplace add .` from a checkout instead).
 
 From another marketplace that lists this plugin:
 
