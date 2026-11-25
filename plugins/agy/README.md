@@ -1,9 +1,15 @@
-# agy plugin for Claude Code
+# agy plugin for Claude Code and Codex
 
 Hand work from a Claude Code session to Google's Antigravity CLI (`agy`),
 which runs Gemini 4. The plugin runs code reviews, adversarial reviews,
 implementation plans and rescue tasks as tracked background jobs. Each job
 works on its own copy of your repository, so agy never edits your checkout.
+
+In local Codex, this package provides the `agy:agy-review` skill for read-only
+reviews and adversarial reviews. From the source clone, run
+`codex plugin marketplace add .` followed by `codex plugin add agy@agy-cc`.
+Open a new thread and ask agy to review a change. Use the returned job ID
+for status, results or cancellation.
 
 ## Prerequisites
 
@@ -30,7 +36,7 @@ works on its own copy of your repository, so agy never edits your checkout.
   need to the Dockerfile. Each job starts with an empty uv cache, so a job
   downloads what it needs.
 
-## Install
+## Install in Claude Code
 
 This repository is its own marketplace. Add it, then install the plugin:
 

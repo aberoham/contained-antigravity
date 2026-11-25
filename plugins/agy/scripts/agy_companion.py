@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Claude Code companion for Google's Antigravity CLI (agy).
+"""Local companion for Google's Antigravity CLI (agy).
 
 Starts agy jobs in isolated git worktrees, tracks them, and reports results.
 Standard library only; runs on the macOS system Python 3.9.
@@ -346,6 +346,8 @@ def start_job(
         raise
     if args.stall_seconds:
         record["stall_seconds"] = args.stall_seconds
+    if getattr(args, "codex", False):
+        record["client"] = "codex"
     record.update(extra or {})
     if record["read_dirs"]:
         message += "\n\nYou may also read files in: " + ", ".join(record["read_dirs"]) + "\n"
@@ -409,6 +411,9 @@ def spawn_worker(store: JobStore, job_id: str) -> None:
 
 def wait_or_report(store: JobStore, job_id: str, args: argparse.Namespace) -> int:
     if args.background:
+        if getattr(args, "codex", False):
+            print(f"agy job {job_id} started in the background.\n{result_command(job_id, codex=True)}")
+            return 0
         print(
             f"agy job {job_id} started in the background.\n"
             f"Check /agy:status {job_id}; read it with /agy:result {job_id}."
@@ -424,14 +429,15 @@ def wait_or_report(store: JobStore, job_id: str, args: argparse.Namespace) -> in
     job = store.read(job_id) or {}
     print(
         f"agy job {job_id} is still running.\n{render.job_detail(job)}\n"
-        f"To wait for the result, run:\n{result_command(job_id)}"
+        f"To wait for the result, run:\n{result_command(job_id, codex=getattr(args, 'codex', False))}"
     )
     return 0
 
 
-def result_command(job_id: str) -> str:
+def result_command(job_id: str, *, codex: bool = False) -> str:
     """A shell command that waits for a job and prints its result, for a caller with no slash commands."""
-    return f"python3 {shlex.quote(str(Path(__file__).resolve()))} result {job_id} --wait-seconds 590"
+    script = SCRIPTS / ("agy_codex.py" if codex else "agy_companion.py")
+    return f"python3 {shlex.quote(str(script))} result {job_id} --wait-seconds 590"
 
 
 def _without_pasted_material(request: str) -> str:
@@ -837,7 +843,7 @@ def cmd_result(args: argparse.Namespace) -> int:
         # A resumed job still holds its previous round's result, which must not be read as this round's.
         print(
             f"agy job {job['id']} is still running.\n{render.job_detail(job)}\n"
-            f"To wait for the result, run:\n{result_command(job['id'])}"
+            f"To wait for the result, run:\n{result_command(job['id'], codex=getattr(args, 'codex', False))}"
         )
         return 0
     print(render.result_text(job, read_json(store.job_dir(job["id"]) / "result.json")))
@@ -1039,8 +1045,14 @@ def add_run_options(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="agy_companion.py", description=__doc__)
+def review_job_id(value: str) -> str:
+    if not re.fullmatch(r"(?:adversarial-)?review-[0-9]{8}-[0-9]{6}-[a-f0-9]{4}", value):
+        raise argparse.ArgumentTypeError("pass the full review job ID")
+    return value
+
+
+def build_parser(*, codex: bool = False) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="agy_codex.py" if codex else "agy_companion.py", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
     setup = sub.add_parser("setup")
@@ -1056,6 +1068,22 @@ def build_parser() -> argparse.ArgumentParser:
         review.add_argument("--instructions-file", help="a file of context and things to check, read on the host")
         review.add_argument("focus", nargs="*", help="context and things to check")
         review.set_defaults(func=lambda a, kind=name: cmd_review(a, kind))
+
+    for name, func in (("status", cmd_status), ("result", cmd_result), ("cancel", cmd_cancel)):
+        p = sub.add_parser(name)
+        if codex:
+            p.add_argument("job", type=review_job_id)
+        else:
+            p.add_argument("job", nargs="?")
+        if name == "status" and not codex:
+            p.add_argument("--all", action="store_true")
+        if name == "result":
+            p.add_argument("--wait-seconds", type=int, help="wait this long for a job that is still running")
+        p.set_defaults(func=func)
+
+    if codex:
+        parser.set_defaults(codex=True)
+        return parser
 
     plan = sub.add_parser("plan")
     add_run_options(plan)
@@ -1077,15 +1105,6 @@ def build_parser() -> argparse.ArgumentParser:
     resume.add_argument("results_file", nargs="?")
     resume.add_argument("--note", nargs="*")
     resume.set_defaults(func=cmd_resume)
-
-    for name, func in (("status", cmd_status), ("result", cmd_result), ("cancel", cmd_cancel)):
-        p = sub.add_parser(name)
-        p.add_argument("job", nargs="?")
-        if name == "status":
-            p.add_argument("--all", action="store_true")
-        if name == "result":
-            p.add_argument("--wait-seconds", type=int, help="wait this long for a job that is still running")
-        p.set_defaults(func=func)
 
     apply = sub.add_parser("apply")
     apply.add_argument("job", nargs="?")
@@ -1190,9 +1209,9 @@ def split_arguments(argv: list[str]) -> list[str]:
     return out
 
 
-def main(argv: list[str] | None = None) -> int:
-    argv = split_arguments(list(sys.argv[1:] if argv is None else argv))
-    args = build_parser().parse_args(argv)
+def main(argv: list[str] | None = None, *, codex: bool = False) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    args = build_parser(codex=codex).parse_args(argv if codex else split_arguments(argv))
     try:
         return int(args.func(args) or 0)
     except ClassifiedError as exc:

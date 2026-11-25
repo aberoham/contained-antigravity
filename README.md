@@ -1,4 +1,4 @@
-# Contained Antigravity for Claude Code
+# Contained Antigravity for Claude Code and Codex
 
 A Claude Code plugin that hands work to Google's Antigravity CLI (`agy`,
 Gemini 4): code reviews, adversarial reviews, implementation plans and
@@ -6,6 +6,33 @@ debugging or implementation tasks. Each one runs as a tracked background job
 on its own copy of your repository, inside a container when Docker is
 available. agy never edits your checkout and never runs with `--yolo` on your
 workstation.
+
+Local Codex users can use the same plugin for read-only code reviews and
+adversarial reviews. Both clients use the same agy runner and Gemini sign-in.
+
+## Install in Codex
+
+From a local clone of this repository, run:
+
+```sh
+codex plugin marketplace add .
+codex plugin add agy@agy-cc
+```
+
+Start a new local Codex thread in the repository you want reviewed. Try
+**“Use agy to review this branch against main”** or **“Ask agy for an
+adversarial review of my working tree in the background.”** The installed
+skill is `agy:agy-review`. Keep the returned job ID to check progress,
+retrieve findings or cancel a running review, including from another thread.
+Background jobs continue after you close the thread.
+
+The Codex entry point keeps job state under `~/.cache/agy-codex/state`.
+Local Codex shell permissions still apply. The runner needs access to agy,
+its sign-in, the checkout and the job state. For container isolation,
+run `containers/build.sh` from the source clone. Without the image the
+default is host isolation. Request container isolation explicitly to
+require it. Plan, rescue, approval resume and patch apply are available
+through Claude Code.
 
 ## What you need
 
@@ -18,7 +45,7 @@ workstation.
 - **Docker or Colima** for container isolation. This is optional but
   recommended. Without it, jobs run in host mode, described below.
 
-## Install
+## Install in Claude Code
 
 1. In Claude Code, add this repository as a marketplace and install the
    plugin:

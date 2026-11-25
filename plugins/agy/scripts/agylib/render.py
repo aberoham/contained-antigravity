@@ -119,6 +119,13 @@ def job_detail(job: dict[str, Any], stored: dict[str, Any] | None = None) -> str
 def next_steps(job: dict[str, Any], stored: dict[str, Any] | None = None) -> str:
     job_id = job.get("id")
     status = job.get("status")
+    if job.get("client") == "codex":
+        if status == "needs-approval":
+            commands = "\n".join(f"- `{c}`" for c in job.get("queued_commands") or [])
+            return f"Review incomplete. agy requested approval for:\n{commands}"
+        if status in ("queued", "running", "resuming"):
+            return f"Use the agy-review skill with job ID {job_id} for progress or cancellation."
+        return f"Review job ID: {job_id}"
     if status in ("queued", "running", "resuming"):
         return f"Next: /agy:status {job_id} for progress, /agy:cancel {job_id} to stop."
     if status == "needs-approval":
