@@ -75,9 +75,8 @@ Codex reads the new catalog name when its marketplace refreshes and then cannot 
 
 **Claude Code:** use the slash commands below.
 
-**Codex:** there are no slash commands. Ask in plain words, for example "use
-agy to review this branch against main", and Codex uses its one agy skill,
-`agy:agy-review`. Despite the name, it also runs adversarial reviews, checks
+**Codex:** ask for a review in plain language, for example "use agy to review
+this branch against main". The `agy:agy-review` skill also runs adversarial reviews, checks
 setup, and shows or cancels a review when you give its full job ID. Planning,
 rescue, writing, apply and resume are not available in Codex.
 
@@ -122,7 +121,7 @@ your request:
   reported.
 - `--read-dir <path>` lets agy read one more directory, such as a sibling
   repository. Repeat it for several. What agy reads there goes to Google too.
-  The Codex skill does not list this option, so ask for it explicitly.
+  In Codex, name each directory you want agy to read in your request.
 - Reviews also take instructions on what to check: text after the flags, or
   `--instructions-file <path>`.
 
