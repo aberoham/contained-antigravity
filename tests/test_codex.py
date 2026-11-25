@@ -52,7 +52,7 @@ def test_codex_approval_stop_lists_queued_commands_without_slash_commands():
 def test_codex_missing_agy_points_to_the_codex_setup(repo, monkeypatch, capsys):
     monkeypatch.chdir(repo)
     monkeypatch.setattr(agy_companion.agybin, "find_agy", lambda: None)
-    assert agy_companion.main(["review"], codex=True) != 0
+    assert agy_companion.main(["review", "--isolation", "host"], codex=True) != 0
     err = capsys.readouterr().err
     assert "agy_codex.py setup" in err and "/agy:" not in err
 
@@ -82,3 +82,22 @@ def test_codex_review_round_trip(contained):
     job = json.loads(record.read_text())
     assert job["id"] == job_id and job["session_id"] is None
     assert job["writable"] is False and job["isolation"] == "container"
+
+
+def test_codex_approval_stop_removes_the_host_worktree(companion):
+    env = dict(companion.env, FAKE_AGY_SCENARIO="task")
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPTS / "agy_codex.py"), "review", "--isolation", "host", "--no-os-sandbox"],
+        cwd=companion.repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert "Codex cannot grant" in proc.stdout, proc.stdout + proc.stderr
+    (record,) = (Path(env["HOME"]) / ".cache/agy-codex/state").glob("*/jobs/*/job.json")
+    job = json.loads(record.read_text())
+    assert job["status"] == "needs-approval"
+    assert not Path(job["worktree"]).exists()
+    worktrees = subprocess.run(["git", "worktree", "list"], cwd=companion.repo, capture_output=True, text=True)
+    assert len(worktrees.stdout.splitlines()) == 1, worktrees.stdout

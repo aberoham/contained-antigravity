@@ -648,3 +648,10 @@ def test_a_worker_stopped_during_the_export_still_removes_the_export_container(c
             break
         time.sleep(0.2)
     assert name_removed in calls
+
+
+def test_codex_read_dirs_may_not_expose_claude_code_job_state(tmp_path, monkeypatch):
+    _signins(tmp_path, monkeypatch)
+    monkeypatch.setenv("AGY_COMPANION_STATE_DIR", str(container.codex_state_root()))
+    claude_data = tmp_path / "home" / ".claude"
+    assert "Claude Code's plugin data" in (container.overlaps_protected(claude_data) or "")

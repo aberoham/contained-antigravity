@@ -666,11 +666,11 @@ class JobRunner:
         # registered in the user's repository. Tasks keep theirs for
         # --resume-last and apply. While a container may still be running in
         # it, the copy stays; pruning or cleanup retries the removal first.
-        if (
-            self.job.get("kind") != "task"
-            and record.get("status") in ("completed", "failed", "cancelled")
-            and not self.leftover_container
-        ):
+        # Codex has no resume command, so a Codex review waiting on approval is finished too.
+        finished = ["completed", "failed", "cancelled"]
+        if record.get("client") == "codex":
+            finished.append("needs-approval")
+        if self.job.get("kind") != "task" and record.get("status") in finished and not self.leftover_container:
             gitctx.remove_worktree(self.job["repo_root"], Path(self.job["worktree"]))
         return record
 

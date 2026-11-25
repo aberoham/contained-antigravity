@@ -35,6 +35,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -357,8 +358,12 @@ def overlaps_protected(directory: Path) -> str | None:
         ("the container sign-in", signin_home()),
         ("the host's agy sign-in", agybin.agy_home()),
         ("the plugin's state directory", state_root()),
-        # Codex jobs keep token copies in their homes, so Claude Code jobs must not mount them either.
+        # Both clients' jobs keep token copies in their homes. A Codex run points
+        # state_root() at its own directory, so Claude Code's default locations
+        # are listed here too.
         ("the Codex job state directory", codex_state_root()),
+        ("Claude Code's plugin data", Path.home() / ".claude" / "plugins" / "data"),
+        ("the fallback job state directory", Path(tempfile.gettempdir()) / "agy-companion"),
     )
     for label, protected in protected_dirs:
         real = Path(os.path.realpath(protected))
