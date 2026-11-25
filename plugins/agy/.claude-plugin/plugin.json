@@ -1,6 +1,6 @@
 {
   "name": "agy",
-  "description": "Hand code review, adversarial review, plan writing and rescue work from Claude Code to Google's Antigravity CLI (agy) as tracked background jobs, isolated from your checkout.",
+  "description": "Run isolated code reviews and adversarial reviews with Google's Antigravity CLI (agy) from Claude Code and local Codex, with planning, rescue tasks, and patch application in Claude Code.",
   "author": {
     "name": "Abraham Ingersoll"
   }

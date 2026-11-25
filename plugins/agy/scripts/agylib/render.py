@@ -119,6 +119,18 @@ def job_detail(job: dict[str, Any], stored: dict[str, Any] | None = None) -> str
 def next_steps(job: dict[str, Any], stored: dict[str, Any] | None = None) -> str:
     job_id = job.get("id")
     status = job.get("status")
+    if job.get("client") == "codex":
+        if status == "needs-approval":
+            queued = job.get("queued_commands") or []
+            if not queued:
+                return "Review incomplete. agy stopped to ask for approval but recorded no commands."
+            commands = "\n".join(f"- `{c}`" for c in queued)
+            return (
+                f"Review incomplete. agy requested approval for these commands, which Codex cannot grant:\n{commands}"
+            )
+        if status in ("queued", "running", "resuming"):
+            return f"Use the agy-review skill with job ID {job_id} for progress or cancellation."
+        return f"Review job ID: {job_id}"
     if status in ("queued", "running", "resuming"):
         return f"Next: /agy:status {job_id} for progress, /agy:cancel {job_id} to stop."
     if status == "needs-approval":
@@ -180,7 +192,10 @@ def result_text(job: dict[str, Any], stored: dict[str, Any] | None) -> str:
             text = text.replace(variant, root)
         for pattern in FILE_LINKS:
             text = pattern.sub(lambda match: _relative_reference(match, root), text)
-        head = (job.get("target") or {}).get("head")
+        target = job.get("target") or {}
+        head = target.get("head")
+        if head and job.get("client") == "codex":
+            head = target.get("head_commit") or head
         if head:
             # The user's checkout holds some other commit, so a path there is not the reviewed file.
             text = re.sub(r"(?<![\w.:/-])" + re.escape(root.rstrip("/") + "/"), "", text)

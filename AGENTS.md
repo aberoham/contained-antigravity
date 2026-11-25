@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Repository guidance for coding and review agents working on `contained-antigravity-for-claude-code`.
+Repository guidance for coding and review agents working on `contained-antigravity`.
 
 ## Runtime and portability constraints
 

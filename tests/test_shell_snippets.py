@@ -86,6 +86,7 @@ def signin_check_snippet() -> str:
 LISTING = (
     "Fetching available models...\n"
     "gemini-4-neon-medium\tGemini 4 Neon (Medium)\n"
+    "claude-opus-5-5-max\tClaude Opus 5.5 (Max)\n"
     "gemini-pro-orchestrator\tOrchestrator\n"
 )
 

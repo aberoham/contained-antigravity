@@ -1,43 +1,19 @@
-# agy plugin for Claude Code
+# Contained Antigravity Plugin
 
-Hand work from a Claude Code session to Google's Antigravity CLI (`agy`),
-which runs Gemini 4. The plugin runs code reviews, adversarial reviews,
-implementation plans and rescue tasks as tracked background jobs. Each job
-works on its own copy of your repository, so agy never edits your checkout.
+Run isolated read-only and adversarial code reviews with Google's Antigravity CLI (`agy`) in Claude Code or local Codex. Claude Code also plans, rescues, and applies patches. Both clients share one local Python runner and your `agy` sign-in. `agy` sends reviewed code to Google.
 
 ## Prerequisites
 
-- **agy 1.5.10 or later**, installed and on `PATH`, or `AGY_BIN` set to its
-  path. See https://antigravity.google/docs/cli. The plugin finds the binary
-  itself: an `agy` shell function in your interactive shell is not visible to
-  Claude Code and is not used.
-- **A Gemini Enterprise seat**, and access to the Google Cloud project that
-  agy is configured to use. Sign in once by running `agy` in a terminal
-  window. `/agy:setup` shows the project agy will use.
-- **git**, and `python3` 3.9 or later. The macOS system Python from the
-  Command Line Tools is enough; the plugin needs no packages.
-- **Docker or Colima, and the agy image**, for container isolation. Run
-  `containers/build.sh` from the source repository. It starts Colima if it
-  is stopped and builds the image for your user; run it again if the image
-  is ever deleted. Container jobs use a copy of your ordinary `agy` sign-in,
-  from `~/.gemini/antigravity-cli/antigravity-oauth-token` or, on macOS, the
-  Keychain, so there is no second sign-in. `containers/signin.sh` makes a
-  separate container-only sign-in, for a Linux host whose agy keeps its
-  token in the system keyring.
-  Without Docker and the image the plugin falls back to host mode,
-  described below. The image carries `git`, `curl`, `jq`, `python3` and `uv`,
-  so agy can run a Python repository's tests; add what your repositories
-  need to the Dockerfile. Each job starts with an empty uv cache, so a job
-  downloads what it needs.
+- **Python 3.9+**, **git**, and **agy 1.5.10+** on `PATH` or `AGY_BIN`
+- A metered Google Cloud Agent Platform sign-in or an eligible Gemini Enterprise seat (see [docs/gemini-enterprise.md](docs/gemini-enterprise.md)). Sign in with `agy` in a terminal and check `agy models`.
+- **Docker or Colima** (optional) for container isolation. Build once from a checkout with `./containers/build.sh`. Without Docker, jobs default to host mode and `--isolation container` fails. Linux keyring users run `./containers/signin.sh` for container sign-in.
 
 ## Install
 
-This repository is its own marketplace. Add it, then install the plugin:
+- **Claude Code:** Run `/plugin marketplace add aberoham/contained-antigravity` (or `/plugin marketplace add ./` locally), then `/plugin install agy@agy-cc` and `/agy:setup`. Update via `/plugin marketplace update agy-cc` and `/plugin`.
+- **Codex CLI:** Run `codex plugin marketplace add aberoham/contained-antigravity` then `codex plugin add agy@agy-cc` to install `agy:agy-review` without cloning (for local plugin development, run `codex plugin marketplace add .` from a checkout instead).
 
-```
-/plugin marketplace add aberoham/contained-antigravity-for-claude-code
-/plugin install agy@agy-cc
-```
+While PR #36 is open, install the preview from the branch with `codex plugin marketplace add aberoham/contained-antigravity --ref feat/codex-agy-review`, then `codex plugin add agy@agy-cc` (current install ID). After merge, the plain repo command follows the default branch.
 
 From another marketplace that lists this plugin:
 
@@ -45,10 +21,9 @@ From another marketplace that lists this plugin:
 /plugin install agy@<marketplace>
 ```
 
-To update later: `/plugin marketplace update agy-cc`.
-
-The repository was called `aberoham/agy-cc` until November 2026. GitHub
-redirects the old name, and the marketplace keeps the name `agy-cc`, so an
+The repository was called `aberoham/agy-cc`, then
+`aberoham/contained-antigravity-for-claude-code`, until November 2026. GitHub
+redirects the old names, and the marketplace keeps the name `agy-cc`, so an
 existing install needs no change.
 
 To try a local checkout: `claude --plugin-dir plugins/agy`.
@@ -346,7 +321,7 @@ drives `/agy:setup` and `/agy:review` through `claude --plugin-dir`.
   bills through Gemini Enterprise Agent Platform (formerly Vertex AI) rather
   than a Gemini Enterprise seat.
 - **Live tests in CI.** The live smoke test runs by hand only: a live agy
-  needs a saved seat sign-in, which is a long-lived secret.
+  needs a saved agy sign-in, which is a long-lived secret.
 
 ## Licence
 

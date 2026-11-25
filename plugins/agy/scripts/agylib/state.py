@@ -24,8 +24,16 @@ from pathlib import Path
 from typing import Any, Callable
 
 STATE_DIR_ENV = "AGY_COMPANION_STATE_DIR"
+INHERITED_STATE_DIR_ENV = "AGY_COMPANION_INHERITED_STATE_DIR"
 PLUGIN_DATA_ENV = "CLAUDE_PLUGIN_DATA"
 SESSION_ID_ENV = "AGY_COMPANION_SESSION_ID"
+
+
+def codex_state_root() -> Path:
+    """Where Codex keeps its jobs, apart from Claude Code's, so neither client lists the other's."""
+    return Path.home() / ".cache" / "agy-codex" / "state"
+
+
 MAX_JOBS = 50
 # A finished job idle this long keeps its record, log and patch but loses its
 # working copy and its agy home, which hold nearly all of its disk space.

@@ -378,6 +378,11 @@ def test_read_dirs_may_not_expose_the_host_sign_in(tmp_path, monkeypatch):
     assert container.overlaps_protected(tmp_path / "elsewhere") is None
 
 
+def test_read_dirs_may_not_expose_codex_job_state(tmp_path, monkeypatch):
+    _signins(tmp_path, monkeypatch)
+    assert "Codex job state" in (container.overlaps_protected(tmp_path / "home" / ".cache") or "")
+
+
 def test_a_job_gets_the_token_bytes_that_were_checked_even_if_the_file_changes(tmp_path, monkeypatch):
     host, _ = _signins(tmp_path, monkeypatch)
     _token(host, "checked", 2000)
@@ -643,3 +648,10 @@ def test_a_worker_stopped_during_the_export_still_removes_the_export_container(c
             break
         time.sleep(0.2)
     assert name_removed in calls
+
+
+def test_codex_read_dirs_may_not_expose_claude_code_job_state(tmp_path, monkeypatch):
+    _signins(tmp_path, monkeypatch)
+    monkeypatch.setenv("AGY_COMPANION_STATE_DIR", str(container.codex_state_root()))
+    claude_data = tmp_path / "home" / ".claude"
+    assert "Claude Code's plugin data" in (container.overlaps_protected(claude_data) or "")

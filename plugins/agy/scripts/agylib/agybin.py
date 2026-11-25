@@ -193,7 +193,7 @@ def read_settings(directory: Path | None = None) -> dict[str, Any]:
 
 
 # One row of `agy models`: the model id, a tab, then its display name.
-MODEL_ROW = re.compile(r"^gemini-[\w.-]+\t\S")
+MODEL_ROW = re.compile(r"^(?:gemini|claude)-[\w.-]+\t\S")
 
 
 def token_present() -> bool:

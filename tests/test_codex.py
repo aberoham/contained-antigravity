@@ -1,0 +1,143 @@
+"""Codex loads its review skill and uses its own job store across invocations."""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import agy_companion
+import pytest
+from agy_companion import build_parser
+from agylib import render
+from conftest import REPO, SCRIPTS
+
+
+def test_codex_package():
+    plugin = REPO / "plugins" / "agy"
+    manifest = json.loads((plugin / ".codex-plugin/plugin.json").read_text())
+    assert json.loads((plugin / manifest["hooks"]).read_text()) == {"hooks": {}}
+    (skill,) = (plugin / manifest["skills"]).glob("*/SKILL.md")
+    assert (skill.parent / "../../scripts/agy_codex.py").resolve().is_file()
+    assert "name: agy-review" in skill.read_text()
+
+
+@pytest.mark.parametrize("args", [["status"], ["cancel", "review-2"], ["result"], ["apply"], ["task"], ["resume"]])
+def test_codex_rejects_ambiguous_or_unsupported_commands(args):
+    with pytest.raises(SystemExit) as error:
+        build_parser(codex=True).parse_args(args)
+    assert error.value.code == 2
+
+
+def test_codex_result_points_to_reviewed_commit_when_head_moves():
+    commit = "1234abcd" * 5
+    job = {
+        "client": "codex",
+        "kind": "review",
+        "target": {"head": "HEAD", "head_commit": commit},
+        "worktree": "/job/worktree",
+        "repo_root": "/repo",
+    }
+    assert f"git show {commit}:<path>" in render.result_text(job, None)
+
+
+def test_codex_approval_stop_lists_queued_commands_without_slash_commands():
+    job = {"client": "codex", "id": "review-1", "status": "needs-approval", "queued_commands": ["pytest -q"]}
+    text = render.next_steps(job)
+    assert "`pytest -q`" in text and "Codex cannot grant" in text and "/agy:" not in text
+    assert "recorded no commands" in render.next_steps(dict(job, queued_commands=[]))
+
+
+def test_codex_missing_agy_points_to_the_codex_setup(repo, monkeypatch, capsys):
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(agy_companion.agybin, "find_agy", lambda: None)
+    assert agy_companion.main(["review", "--isolation", "host"], codex=True) != 0
+    err = capsys.readouterr().err
+    assert "agy_codex.py setup" in err and "/agy:" not in err
+
+
+def test_codex_review_round_trip(contained):
+    env = dict(contained.env, AGY_COMPANION_SESSION_ID="claude-session", FAKE_AGY_SCENARIO="review")
+
+    def run(*args):
+        return subprocess.run(
+            [sys.executable, str(SCRIPTS / "agy_codex.py"), *args],
+            cwd=contained.repo,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
+        ).stdout
+
+    launch = run("review", "--background")
+    job_id = launch.split()[2]
+    assert f"agy_codex.py result {job_id}" in launch
+    result = run("result", job_id, "--wait-seconds", "45")
+    assert "Verdict:" in result and "/agy:" not in result
+    assert "Status: completed" in run("status", job_id)
+    assert contained.jobs() == []
+    (record,) = (Path(env["HOME"]) / ".cache/agy-codex/state").glob("*/jobs/*/job.json")
+    job = json.loads(record.read_text())
+    assert job["id"] == job_id and job["session_id"] is None
+    assert job["writable"] is False and job["isolation"] == "container"
+
+
+def test_codex_read_dirs_respect_configured_claude_paths(contained, tmp_path):
+    inherited = tmp_path / "legacy" / "state"
+    plugin_data = tmp_path / "plugin-data"
+    config = tmp_path / "profile"
+    public = config / "shared"
+    public.mkdir(parents=True)
+    env = dict(
+        contained.env,
+        AGY_COMPANION_STATE_DIR=str(inherited),
+        CLAUDE_PLUGIN_DATA=str(plugin_data),
+        CLAUDE_CONFIG_DIR=str(config),
+        FAKE_AGY_SCENARIO="review",
+    )
+
+    def review(directory):
+        return subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPTS / "agy_codex.py"),
+                "review",
+                "--isolation",
+                "container",
+                "--read-dir",
+                str(directory),
+            ],
+            cwd=contained.repo,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+    for directory in (inherited.parent, plugin_data, config / "plugins" / "data" / "child"):
+        directory.mkdir(parents=True, exist_ok=True)
+        result = review(directory)
+        assert result.returncode == 2 and "--read-dir refused" in result.stderr
+    result = review(public)
+    assert result.returncode == 0 and "Verdict:" in result.stdout
+
+
+def test_codex_approval_stop_removes_the_host_worktree(companion):
+    env = dict(companion.env, FAKE_AGY_SCENARIO="task")
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPTS / "agy_codex.py"), "review", "--isolation", "host", "--no-os-sandbox"],
+        cwd=companion.repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert "Codex cannot grant" in proc.stdout, proc.stdout + proc.stderr
+    (record,) = (Path(env["HOME"]) / ".cache/agy-codex/state").glob("*/jobs/*/job.json")
+    job = json.loads(record.read_text())
+    assert job["status"] == "needs-approval"
+    assert not Path(job["worktree"]).exists()
+    worktrees = subprocess.run(["git", "worktree", "list"], cwd=companion.repo, capture_output=True, text=True)
+    assert len(worktrees.stdout.splitlines()) == 1, worktrees.stdout
