@@ -23,7 +23,8 @@ if ((${#local_certs[@]} == 0 && ${#docker_certs[@]} > 0)); then
     cp "${docker_certs[@]}" "${here}/certs/"
 fi
 
-docker build --build-arg "UID=$(id -u)" --build-arg "GID=$(id -g)" -t "${image}" "${here}"
+minimum="$(PYTHONPATH="${here}/../plugins/agy/scripts" python3 -c 'from agylib.agybin import MIN_VERSION_TEXT; print(MIN_VERSION_TEXT)')"
+docker build --build-arg "AGY_MIN_VERSION=${minimum}" --build-arg "UID=$(id -u)" --build-arg "GID=$(id -g)" -t "${image}" "${here}"
 # Each rebuild leaves the previous image untagged. The label limits the prune
 # to this project's images.
 docker image prune --force --filter label=agy-cc.image >/dev/null

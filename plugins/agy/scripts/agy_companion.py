@@ -209,7 +209,7 @@ def setup_report() -> dict[str, Any]:
         "agy_path": str(binary) if binary else None,
         "agy_version": ".".join(map(str, version)) if version else None,
         "version_ok": bool(version and version >= agybin.MIN_VERSION),
-        "minimum_version": ".".join(map(str, agybin.MIN_VERSION)),
+        "minimum_version": agybin.MIN_VERSION_TEXT,
         "gcp_project": gcp.get("project"),
         "gcp_location": gcp.get("location"),
         "permission_allow_rules": len((settings.get("permissions") or {}).get("allow") or []),
@@ -227,8 +227,8 @@ def setup_report() -> dict[str, Any]:
     problems = []
     if not binary:
         problems.append("agy is not installed or not on PATH. Install it, or set AGY_BIN to its path.")
-    elif not report["version_ok"]:
-        problems.append(f"agy {report['agy_version']} is older than {report['minimum_version']}; run `agy update`.")
+    elif reason := agybin.version_problem(version):
+        problems.append(f"{reason}; run `agy update`.")
     if binary and signed_in is False:
         problems.append("agy is not signed in. Run `agy` once in a terminal and sign in.")
     elif binary and signed_in is None:
@@ -302,6 +302,8 @@ def start_job(
     root = gitctx.repo_root(os.getcwd())
     store = JobStore(root)
     isolation = choose_isolation(args)
+    if isolation == "host":
+        require_host_version(binary)
     job_id = new_job_id(kind)
     job_dir = store.jobs / job_id
     worktree = store.dir / "worktrees" / job_id
@@ -360,6 +362,12 @@ def start_job(
     (job_dir / "next-message.md").write_text(message, encoding="utf-8")
     spawn_worker(store, job_id)
     return wait_or_report(store, job_id, args)
+
+
+def require_host_version(binary: Path) -> None:
+    reason = agybin.version_problem(agybin.agy_version(binary))
+    if reason:
+        raise ClassifiedError("agy-missing", f"{reason}; run `agy update`.")
 
 
 def choose_isolation(args: argparse.Namespace) -> str:
@@ -640,6 +648,14 @@ def continue_job(
         worktree = record.get("worktree")
         if not worktree or not Path(worktree).is_dir():
             raise UsageError(f"Job {job_id}'s working copy no longer exists; start a new job.")
+        if current_iso == "host":
+            require_host_version(Path(record["agy_bin"]))
+        else:
+            reason = agybin.version_problem(container.image_version())
+            if reason:
+                raise ClassifiedError(
+                    "container", f"image {container.image_name()}: {reason}; rebuild with containers/build.sh."
+                )
         finished = parse_iso(record.get("completed_at"))
         merged_dirs = list(dict.fromkeys([*(record.get("read_dirs") or []), *extra_dirs]))
         record.update(
@@ -1135,7 +1151,7 @@ def build_parser(*, codex: bool = False) -> argparse.ArgumentParser:
 def _split_prose_preserving_quotes(raw: str) -> list[str]:
     """Split on whitespace while keeping balanced "..." and standalone '...' tokens intact.
 
-    Used only when shlex.split fails (for example, an apostrophe in "caller's").
+    Used for unquoted prose apostrophes and incomplete shell quoting.
     Unlike shlex.shlex, '#' is never a comment and backslashes outside double
     quotes stay literal, so '#91' and 'C:\\temp' survive unchanged.
     """
@@ -1184,7 +1200,14 @@ def _split_prose_preserving_quotes(raw: str) -> list[str]:
     return tokens
 
 
+# Skip escaped characters and complete quoted strings when looking for a
+# possessive or contraction. Apostrophes inside those strings are shell data.
+_RAW_QUOTES = re.compile(r"""\\.|"(?:\\.|[^"\\])*" | (?<!\w)'[^']*' | (?P<prose>(?<=\w)')""", re.VERBOSE)
+
+
 def _split_raw(raw: str) -> list[str]:
+    if any(match.lastgroup == "prose" for match in _RAW_QUOTES.finditer(raw)):
+        return _split_prose_preserving_quotes(raw)
     try:
         return shlex.split(raw)
     except ValueError:

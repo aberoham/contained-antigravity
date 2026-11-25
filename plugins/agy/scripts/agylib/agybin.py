@@ -19,6 +19,7 @@ AGY_BIN_ENV = "AGY_BIN"
 # 1.5.10 waits 10 minutes, not 5, before it treats a silent model as stalled
 # and retries the turn, which gives High-level turns room to think.
 MIN_VERSION = (1, 5, 10)
+MIN_VERSION_TEXT = ".".join(map(str, MIN_VERSION))
 # Only a container job gets this flag, and only container.wrap adds it:
 # build_command refuses it, so a host-mode command can never carry it.
 SKIP_PERMISSIONS_FLAGS = ("--dangerously-skip-permissions",)
@@ -92,7 +93,15 @@ def agy_version(binary: Path) -> tuple[int, ...] | None:
         out = subprocess.run([str(binary), "--version"], capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired):
         return None
-    return parse_version(out.stdout + out.stderr)
+    return parse_version(out.stdout + out.stderr) if out.returncode == 0 else None
+
+
+def version_problem(version: tuple[int, ...] | None) -> str | None:
+    if version is None:
+        return f"could not verify the agy version (requires {MIN_VERSION_TEXT} or newer)"
+    if version < MIN_VERSION:
+        return f"agy {'.'.join(map(str, version))} is older than {MIN_VERSION_TEXT}"
+    return None
 
 
 def settings_model(settings: dict[str, Any]) -> str | None:

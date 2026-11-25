@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from agylib import container
 from conftest import git
 
@@ -53,6 +54,28 @@ def test_setup_reports_the_container_state(companion, contained):
     assert report["isolation"] == "container" and report["container_unavailable"] is None
 
 
+@pytest.mark.parametrize("version", ["1.5.9", "unknown"])
+def test_jobs_check_the_version_of_the_selected_runtime(contained, version):
+    env = {"FAKE_IMAGE_VERSION": version}
+    report = json.loads(contained.run("setup", "--json", **env).stdout)
+    assert report["version_ok"] and report["isolation"] == "host"
+    assert "1.5.10" in report["container_unavailable"] and "build.sh" in report["container_unavailable"]
+    refused = contained.run("review", "--isolation", "container", check=False, **env)
+    assert refused.returncode == 17 and "1.5.10" in refused.stderr
+    refused = contained.run("review", "--isolation", "host", check=False, FAKE_HOST_VERSION=version)
+    assert refused.returncode == 13 and "agy update" in refused.stderr
+    assert contained.jobs() == []
+
+
+@pytest.mark.parametrize("isolation,key", [("host", "FAKE_HOST_VERSION"), ("container", "FAKE_IMAGE_VERSION")])
+def test_resume_checks_runtime_before_changing_job_state(contained, isolation, key):
+    contained.run("task", "--no-os-sandbox", "--isolation", isolation, "fix the bug", scenario="task")
+    original = contained.job()
+    refused = contained.run("task", "--resume-last", "continue", check=False, **{key: "1.5.9"})
+    assert refused.returncode in (13, 17) and "1.5.9" in refused.stderr
+    assert contained.job() == original
+
+
 def test_an_image_built_for_another_user_is_refused_with_the_rebuild_command(contained):
     other = f"{os.getuid() + 1}:{os.getgid() + 1}"
     proc = contained.run(
@@ -80,7 +103,8 @@ def test_review_runs_in_a_container_with_only_the_job_paths_mounted(contained, r
     state = Path(contained.env["AGY_COMPANION_STATE_DIR"])
     signin = Path(contained.env["AGY_CONTAINER_HOME"])
     job_mount = worktree.parent.parent / "jobs" / job["id"] / "container"
-    probe, run = contained.docker_runs()
+    version, probe, run = contained.docker_runs()
+    assert version[-1] == "--version"
     assert "touch" in probe
     assert [o for o in probe if o.startswith("--volume=")] == [f"--volume={state}:{state}"]
     options = _run_options(run)
@@ -149,7 +173,7 @@ def test_container_task_keeps_repository_hooks_and_exports_from_inside(contained
     assert "_export" in export and "--entrypoint" in export
     assert f"--name=agy-{job['id']}-1-export" in export and "--init" in export
     assert [o for o in export if o.startswith("--volume=")] == [
-        o for o in contained.docker_runs()[1] if o.startswith("--volume=")
+        o for o in contained.docker_runs()[-2] if o.startswith("--volume=")
     ]
     assert export[-1] == str(worktree.parent.parent / "jobs" / job["id"] / "container")
     calls = [json.loads(line) for line in contained.docker_calls.read_text().splitlines()]
