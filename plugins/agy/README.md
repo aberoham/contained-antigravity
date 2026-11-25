@@ -10,10 +10,8 @@ Run isolated read-only and adversarial code reviews with Google's Antigravity CL
 
 ## Install
 
-- **Claude Code:** Run `/plugin marketplace add aberoham/contained-antigravity` (or `/plugin marketplace add ./` locally), then `/plugin install agy@agy-cc` and `/agy:setup`. Update via `/plugin marketplace update agy-cc` and `/plugin`.
-- **Codex CLI:** Run `codex plugin marketplace add aberoham/contained-antigravity` then `codex plugin add agy@agy-cc` to install `agy:agy-review` without cloning (for local plugin development, run `codex plugin marketplace add .` from a checkout instead).
-
-While PR #36 is open, install the preview from the branch with `codex plugin marketplace add aberoham/contained-antigravity --ref feat/codex-agy-review`, then `codex plugin add agy@agy-cc` (current install ID). After merge, the plain repo command follows the default branch.
+- **Claude Code:** Run `/plugin marketplace add aberoham/contained-antigravity` (or `/plugin marketplace add ./` locally), then `/plugin install agy@contained-antigravity` and `/agy:setup`. Update via `/plugin marketplace update contained-antigravity` and `/plugin`.
+- **Codex CLI:** Run `codex plugin marketplace add aberoham/contained-antigravity` then `codex plugin add agy@contained-antigravity` to install `agy:agy-review` without cloning (for local plugin development, run `codex plugin marketplace add .` from a checkout instead).
 
 From another marketplace that lists this plugin:
 
@@ -23,12 +21,38 @@ From another marketplace that lists this plugin:
 
 The repository was called `aberoham/agy-cc`, then
 `aberoham/contained-antigravity-for-claude-code`, until November 2026. GitHub
-redirects the old names, and the marketplace keeps the name `agy-cc`, so an
-existing install needs no change.
+redirects the old names.
 
 To try a local checkout: `claude --plugin-dir plugins/agy`.
 
 Then run `/agy:setup`.
+
+## Migrating from `agy-cc`
+
+Run this once if you previously installed from the bundled `agy-cc` marketplace. Skip this section for fresh installs or unrelated external marketplaces (which keep their own ID).
+
+Codex reads the new catalog name when its marketplace refreshes and then cannot find `agy@agy-cc`, so Codex installs must migrate. Claude Code keeps the name it recorded when you added the marketplace, so an existing `agy@agy-cc` install keeps updating. There, migrating is optional, and the new install does not see the old install's jobs.
+
+1. Finish any active jobs. In Claude Code, resolve any `needs-approval` jobs, apply any patches you want to keep with `/agy:apply`, and save needed results before uninstalling `agy@agy-cc`.
+2. Remove the old plugin and marketplace entry for your client.
+
+   **Claude Code (terminal)**
+
+   ```bash
+   claude plugin uninstall agy@agy-cc --keep-data
+   claude plugin marketplace remove agy-cc
+   ```
+   `--keep-data` preserves persistent data under the old plugin ID. Reinstalling does not transfer it to `agy@contained-antigravity`.
+
+   **Codex**
+
+   ```bash
+   codex plugin remove agy@agy-cc
+   codex plugin marketplace remove agy-cc
+   ```
+
+3. Follow the install steps above to add `aberoham/contained-antigravity` and install `agy@contained-antigravity`.
+4. Update any team configs that reference `agy-cc` or `agy@agy-cc`.
 
 ## Commands
 
