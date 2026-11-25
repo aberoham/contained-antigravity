@@ -14,6 +14,7 @@ that path to an absolute path before invoking it. Keep the checkout as cwd.
   `--`, or use `--instructions-file`. If Codex's sandbox blocks the state directory, Docker socket or sign-in,
   request approval for the specific companion invocation through the usual
   shell approval flow. Preserve any isolation mode the user requested.
+- Pass `--read-dir <path>` once for each extra directory the user asks agy to read.
 - Wait for completion unless the user asks for background execution. For a
   background review, pass `--background` and return the full job ID. For a
   running foreground review, use `result JOB_ID --wait-seconds 120` until

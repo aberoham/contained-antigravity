@@ -9,7 +9,7 @@ See [CHANGELOG.md](CHANGELOG.md) for notable changes and upgrade notes.
 - **Python 3.9+** and **git**
 - **agy 1.5.10+** on `PATH` or set via `AGY_BIN`
 - A working metered Google Cloud Agent Platform sign-in or an eligible Gemini Enterprise seat (see the [Gemini Enterprise guide](plugins/agy/docs/gemini-enterprise.md)). Run `agy` in a terminal to sign in to your Google Cloud project, then verify with `agy models`.
-- **Docker or Colima** (optional) for container isolation. Build the image once from your checkout with `./containers/build.sh`. Without a usable container runtime, jobs default to host isolation. Passing `--isolation container` requires Docker and fails if it is unavailable. On Linux hosts using a system keyring for `agy`, run `./containers/signin.sh` from the clone to create a container-only sign-in.
+- **Docker or Colima** (optional) for container isolation. Build the image once from your checkout with `./containers/build.sh`. If your network intercepts TLS, put its root certificates in `containers/certs/` as PEM-format `.crt` files before building. If that directory has none, the script copies `.crt` files directly inside `~/.docker/certs.d`, but not from subfolders. To change them later, replace the files in `containers/certs/` and rebuild. Without a usable container runtime, jobs default to host isolation. Passing `--isolation container` requires Docker and fails if it is unavailable. On Linux hosts using a system keyring for `agy`, run `./containers/signin.sh` from the clone to create a container-only sign-in.
 
 ## Installation
 
@@ -73,6 +73,13 @@ Codex reads the new catalog name when its marketplace refreshes and then cannot 
 
 ## Use
 
+**Claude Code:** use the slash commands below.
+
+**Codex:** ask for a review in plain language, for example "use agy to review
+this branch against main". The `agy:agy-review` skill also runs adversarial reviews, checks
+setup, and shows or cancels a review when you give its full job ID. Planning,
+rescue, writing, apply and resume are not available in Codex.
+
 | Command | What it does |
 | --- | --- |
 | `/agy:review` | Reviews your uncommitted changes, or, on a clean checkout, the branch against the default branch. |
@@ -82,11 +89,13 @@ Codex reads the new catalog name when its marketplace refreshes and then cannot 
 | `/agy:adversarial-review [focus]` | A review that challenges the design and its assumptions. |
 | `/agy:plan <request>` | Writes an implementation plan. |
 | `/agy:rescue <request>` | Hands a debugging or implementation task to agy. agy edits its own copy of the repository. |
+| `/agy:agy-writing <request>` | Drafts or rewrites prose such as pull request descriptions, comments and release notes. |
 | `/agy:status [job]` | Lists jobs, or shows one job's rounds, stalls and token use. |
 | `/agy:result [job]` | Shows a finished job's output. |
 | `/agy:apply [job]` | Applies a finished task's changes to your checkout. `--check` tests first. |
 | `/agy:resume <job>` | Sends the output of commands agy queued back to agy (host mode). |
 | `/agy:cancel [job]` | Stops a running job. |
+| `/agy:setup` | Checks that agy is installed and signed in, and which isolation jobs will use. |
 
 You can also ask Claude in plain words, for example "get agy to review this
 branch", "ask agy why this test fails" or "have agy write the pull request
@@ -95,7 +104,8 @@ plugin's `agy-rescue` subagent, drafts human-facing prose through the
 `agy-writing` skill, and checks agy's quotes and `file:line` claims before
 relaying them.
 
-Common options:
+Common options, written for Claude Code. In Codex, name the one you want in
+your request:
 
 - `--model` picks the Gemini model: a thinking level (`low`, `medium`,
   `high`, `xhigh`), a family (`neon`), both (`neon-high`), or a full ID from
@@ -109,6 +119,11 @@ Common options:
 - `--background` returns at once. Check on the job with `/agy:status`.
 - `--isolation container|host` overrides the isolation that `/agy:setup`
   reported.
+- `--read-dir <path>` lets agy read one more directory, such as a sibling
+  repository. Repeat it for several. What agy reads there goes to Google too.
+  In Codex, name each directory you want agy to read in your request.
+- Reviews also take instructions on what to check: text after the flags, or
+  `--instructions-file <path>`.
 
 Reviews and plans are read-only. A task's changes stay in the job's copy
 until you run `/agy:apply`, which refuses if the same files changed in your

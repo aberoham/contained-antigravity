@@ -56,12 +56,19 @@ Codex reads the new catalog name when its marketplace refreshes and then cannot 
 
 ## Commands
 
+Use the slash commands below in Claude Code. In Codex, ask for a review in plain
+language, for example "use agy to review this branch against main". The
+`agy:agy-review` skill also checks setup and shows results, reports progress or
+cancels a review when you provide its full job ID. Planning, rescue, writing,
+apply and resume are available only in Claude Code.
+
 | Command | What it does |
 | --- | --- |
 | `/agy:review` | Reviews uncommitted changes, the branch against its base (`--base <ref>`), or another ref without checking it out (`--base <ref> --head <ref>`). Takes instructions: text after the flags, or `--instructions-file <path>`. Read-only. |
 | `/agy:adversarial-review` | Review that challenges the design and assumptions. Takes focus text. Read-only. |
 | `/agy:plan <request>` | Writes an implementation plan. Takes `--request-file <path>`. Read-only. |
-| `/agy:rescue <request>` | Hands a debugging or implementation task to agy through the `agy-rescue` subagent (`--request-file <path>` supported). agy edits its own working copy unless `--read-only` is set. The subagent is also how Claude starts a review by itself, while the `agy-writing` skill runs a read-only task to draft or rewrite pull requests, issue comments, emails and write-ups in Gemini 4's prose voice. |
+| `/agy:rescue <request>` | Hands a debugging or implementation task to agy through the `agy-rescue` subagent (`--request-file <path>` supported). agy edits its own working copy unless `--read-only` is set. The subagent is also how Claude starts a review by itself. |
+| `/agy:agy-writing <request>` | Drafts or rewrites prose such as pull request descriptions, comments and release notes. |
 | `/agy:status [job]` | Lists jobs, or shows one job with a table of its rounds: duration, time waiting for Claude, tokens, stalls and queued commands. |
 | `/agy:result [job]` | Shows a finished job's output. |
 | `/agy:resume <job> [file]` | Sends the output of commands agy queued back to agy, and lets it continue. |
