@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/). Future c
 
 ## Unreleased
 
-Planned for Codex preview `0.2.0`:
+## 0.2.0 (Codex preview)
 
 ### Changed
 
@@ -20,8 +20,10 @@ Planned for Codex preview `0.2.0`:
 
 ### Security
 
-- Container `--read-dir` checks now also refuse directories overlapping the Codex job-state root, including when launched by Claude Code, because per-job homes can contain copies of sign-in material ([PR #36](https://github.com/aberoham/contained-antigravity/pull/36)).
+- Container `--read-dir` checks refuse directories that overlap either client's job state, because per-job homes can contain copies of sign-in material. Claude Code jobs refuse the Codex job-state root. Codex jobs refuse Claude Code's plugin data (the default location, `CLAUDE_PLUGIN_DATA` and `CLAUDE_CONFIG_DIR`), an inherited state directory and the fallback state directory ([PR #36](https://github.com/aberoham/contained-antigravity/pull/36)).
 
 ### Fixed
 
-- Missing `agy` errors now point Codex users to `agy_codex.py setup`, and approval stops now report queued commands or state that none were recorded ([PR #36](https://github.com/aberoham/contained-antigravity/pull/36)).
+- Missing `agy` errors point Codex users to `agy_codex.py setup` ([PR #36](https://github.com/aberoham/contained-antigravity/pull/36)).
+- A Codex review that stops for approval reports the queued commands, or says that none were recorded, and removes its git worktree, because Codex cannot resume it ([PR #36](https://github.com/aberoham/contained-antigravity/pull/36)).
+- `agy_codex.py` imports its modules under `python3 -P` and `PYTHONSAFEPATH` ([PR #36](https://github.com/aberoham/contained-antigravity/pull/36)).

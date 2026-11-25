@@ -31,6 +31,8 @@ Then run `/agy:setup`.
 
 Run this once if you previously installed from the bundled `agy-cc` marketplace. Skip this section for fresh installs or unrelated external marketplaces (which keep their own ID).
 
+Codex reads the new catalog name when its marketplace refreshes and then cannot find `agy@agy-cc`, so Codex installs must migrate. Claude Code keeps the name it recorded when you added the marketplace, so an existing `agy@agy-cc` install keeps updating. There, migrating is optional, and the new install does not see the old install's jobs.
+
 1. Finish any active jobs. In Claude Code, resolve any `needs-approval` jobs, apply any patches you want to keep with `/agy:apply`, and save needed results before uninstalling `agy@agy-cc`.
 2. Remove the old plugin and marketplace entry for your client.
 
