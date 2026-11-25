@@ -23,10 +23,12 @@ def load(path):
 def test_manifest_and_catalog_follow_thg_rules():
     manifest = load(PLUGIN / ".claude-plugin" / "plugin.json")
     catalog = load(REPO / ".claude-plugin" / "marketplace.json")
+    assert catalog["name"] == "contained-antigravity"
     assert manifest["name"] == "agy"
     assert "version" not in manifest
     assert "version" not in catalog and "version" not in (catalog.get("metadata") or {})
     (entry,) = catalog["plugins"]
+    assert entry["name"] == manifest["name"]
     assert "version" not in entry
     assert entry["source"] == "./plugins/agy"
     for field in ("description", "author"):

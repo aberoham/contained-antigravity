@@ -2,6 +2,8 @@
 
 Run isolated read-only code reviews and adversarial reviews with Google's Antigravity CLI (`agy`) from Claude Code or local Codex. Claude Code also supports planning, rescue tasks, and patch application. Both clients share the same local Python runner and `agy` sign-in. `agy` sends reviewed code to Google.
 
+See [CHANGELOG.md](CHANGELOG.md) for notable changes and upgrade notes.
+
 ## Prerequisites
 
 - **Python 3.9+** and **git**
@@ -17,20 +19,18 @@ Add the marketplace and install:
 
 ```text
 /plugin marketplace add aberoham/contained-antigravity
-/plugin install agy@agy-cc
+/plugin install agy@contained-antigravity
 ```
 
-For a local branch preview, substitute `/plugin marketplace add ./`. Run `/agy:setup` to verify your setup, then try `/agy:review`. Update existing installs with `/plugin marketplace update agy-cc` and the `/plugin` menu.
+For a local branch preview, substitute `/plugin marketplace add ./`. Run `/agy:setup` to verify your setup, then try `/agy:review`. Update existing installs with `/plugin marketplace update contained-antigravity` and the `/plugin` menu.
 
 ### Codex CLI
-
-While PR #36 is open, install the preview from the branch with `codex plugin marketplace add aberoham/contained-antigravity --ref feat/codex-agy-review`, then `codex plugin add agy@agy-cc` (current install ID). After merge, the plain repo command follows the default branch.
 
 Install directly from GitHub without cloning the repository:
 
 ```bash
 codex plugin marketplace add aberoham/contained-antigravity
-codex plugin add agy@agy-cc
+codex plugin add agy@contained-antigravity
 ```
 
 This installs the `agy:agy-review` skill. If you want to build the optional container image, run the build from a source checkout or the downloaded marketplace root.
@@ -39,10 +39,35 @@ For plugin development from a local checkout, add the repository root as a local
 
 ```bash
 codex plugin marketplace add .
-codex plugin add agy@agy-cc
+codex plugin add agy@contained-antigravity
 ```
 
 Open a new thread in your target repository and ask, `"Use agy to review this branch against main"`. Codex invokes the `agy:agy-review` skill and prompts for shell approval as usual. Use the full job ID for status, results, or cancellation. Jobs continue after thread closure, store state in `~/.cache/agy-codex/state`, and accept `--isolation container`.
+
+## Migrating from `agy-cc`
+
+Run this once if you previously installed from the bundled `agy-cc` marketplace. Skip this section for fresh installs or unrelated external marketplaces (which keep their own ID).
+
+1. Finish any active jobs. In Claude Code, resolve any `needs-approval` jobs, apply any patches you want to keep with `/agy:apply`, and save needed results before uninstalling `agy@agy-cc`.
+2. Remove the old plugin and marketplace entry for your client.
+
+   **Claude Code (terminal)**
+
+   ```bash
+   claude plugin uninstall agy@agy-cc --keep-data
+   claude plugin marketplace remove agy-cc
+   ```
+   `--keep-data` preserves persistent data under the old plugin ID. Reinstalling does not transfer it to `agy@contained-antigravity`.
+
+   **Codex**
+
+   ```bash
+   codex plugin remove agy@agy-cc
+   codex plugin marketplace remove agy-cc
+   ```
+
+3. Follow the install steps above to add `aberoham/contained-antigravity` and install `agy@contained-antigravity`.
+4. Update any team configs that reference `agy-cc` or `agy@agy-cc`.
 
 ## Use
 
@@ -178,8 +203,7 @@ codes, and known problems.
 
 The repository was called `aberoham/agy-cc`, then
 `aberoham/contained-antigravity-for-claude-code`, until November 2026. GitHub
-redirects the old names, and the marketplace keeps the name `agy-cc`, so an
-existing install needs no change.
+redirects the old names.
 
 ## Development
 
