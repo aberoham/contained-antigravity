@@ -12,7 +12,7 @@ user-invocable: false
 agy has presented invented text as a verbatim copy of a real file, with wrong names and invented rules. Treat every specific claim as unverified until checked:
 
 - For each `file:line` reference and each quoted code or text, open the file (Read or Grep) and confirm the line exists and says what agy claims: check the user's repository for read-only jobs, and check the job's working copy for files a writable task edited.
-- A review started with `--head <ref>` describes that ref, not the checkout. Its result ends with "Paths and lines are as of <ref>"; check its claims with `git show <ref>:<path>`, not with the working tree.
+- For a review started with `--head <ref>`, use the revision printed in the result’s “Paths and lines are as of” hint. Check each claim with the supplied `git show <revision>:<path>` command.
 - Check names agy gives for files, functions, settings, projects and commands.
 - In your reply, say which claims you checked and which you could not. Mark a claim that failed the check as wrong and show what the file actually says. Do not silently fix it.
 - For plans, check any step that tells the reader to copy something "exactly" or "verbatim" against the source.

@@ -19,4 +19,4 @@ Execution mode:
 
 If no request was given, ask what agy should investigate or fix.
 
-Present the subagent's output following the `agy-result-handling` skill: verify `file:line` references and quoted excerpts before relaying them (against the user's repository for read-only jobs, `git show <ref>:<path>` for a `--head` review, or the job's working copy for files a writable task edited), report `Cannot review:` results as no review, point to `/agy:apply <job>` only when a writable task actually changed files, and if the job ends in `needs-approval`, follow the "Queued commands" section.
+Present the subagent's output following the `agy-result-handling` skill: verify `file:line` references and quoted excerpts before relaying them (against the user's repository for read-only jobs, the reported `git show <revision>:<path>` command for a `--head` review, or the job's working copy for files a writable task edited), report `Cannot review:` results as no review, point to `/agy:apply <job>` only when a writable task actually changed files, and if the job ends in `needs-approval`, follow the "Queued commands" section.

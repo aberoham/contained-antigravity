@@ -129,7 +129,8 @@ def main() -> int:
     argv = sys.argv[1:]
     calls = os.environ.get("FAKE_AGY_CALLS")
     if argv == ["--version"]:
-        print("1.5.15")
+        key = "FAKE_IMAGE_VERSION" if os.environ.get("FAKE_AGY_IN_CONTAINER") else "FAKE_HOST_VERSION"
+        print(os.environ.get(key, "1.5.15"))
         return 0
     if argv == ["models"]:
         # agy prints an error and still exits 0 when it is not signed in.

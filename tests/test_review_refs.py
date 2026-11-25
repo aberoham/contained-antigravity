@@ -58,7 +58,10 @@ def test_head_reviews_a_ref_that_is_not_checked_out(pr_repo, tmp_path, container
     copy_files = proc.stdout.split("files=")[1].split()[0].split(",")
     assert "median.py" in copy_files and "notes.txt" not in copy_files
     assert companion.job()["target"]["head"] == PR_REF
-    assert f"Paths and lines are as of {PR_REF}; read a file with `git show {PR_REF}:<path>`" in proc.stdout
+    commit = git(pr_repo, "rev-parse", PR_REF).strip()
+    git(pr_repo, "update-ref", PR_REF, "main")
+    hint = f"Paths and lines are as of {commit}; read a file with `git show {commit}:<path>`"
+    assert hint in proc.stdout and hint in companion.run("result", companion.job()["id"]).stdout
     # The user's checkout is as it was.
     assert git(pr_repo, "branch", "--show-current").strip() == "main"
     assert "v[1:]" in (pr_repo / "stats.py").read_text() and not (pr_repo / "median.py").exists()

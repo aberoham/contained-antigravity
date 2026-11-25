@@ -398,6 +398,20 @@ def image_present() -> bool:
     return bool(proc and proc.returncode == 0)
 
 
+def image_version() -> tuple[int, ...] | None:
+    proc = _docker(
+        "run",
+        "--rm",
+        "--pull=never",
+        "--network=none",
+        f"--user={os.getuid()}:{os.getgid()}",
+        image_name(),
+        "--version",
+        timeout=30,
+    )
+    return agybin.parse_version(proc.stdout + proc.stderr) if proc and proc.returncode == 0 else None
+
+
 def image_user() -> str | None:
     """The image's USER as docker reports it ("501:20", "agent" or ""), or None when the inspection failed."""
     proc = _docker("image", "inspect", "--format", "{{.Config.User}}", image_name(), timeout=15)
@@ -463,8 +477,11 @@ def report() -> dict[str, object]:
     reachable = bool(binary) and daemon_reachable()
     present = reachable and image_present()
     user = image_user() if present else None
+    version = image_version() if present else None
     source = signin_source()
     return {
+        "image_agy_version": ".".join(map(str, version)) if version else None,
+        "image_version_problem": agybin.version_problem(version) if present else None,
         "docker": str(binary) if binary else None,
         "docker_reachable": reachable,
         "image": image_name(),
@@ -499,6 +516,8 @@ def unavailable_reason(status: dict[str, object] | None = None) -> str | None:
             f"the image {status['image']} was built for user {status['image_user']}, not "
             f"{os.getuid()}:{os.getgid()}; rebuild it with containers/build.sh"
         )
+    if status["image_version_problem"]:
+        return f"image {status['image']}: {status['image_version_problem']}; rebuild it with containers/build.sh"
     if not status["state_mountable"]:
         return (
             f"the container cannot write to the state directory {state_root()}; "

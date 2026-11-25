@@ -209,7 +209,7 @@ def setup_report() -> dict[str, Any]:
         "agy_path": str(binary) if binary else None,
         "agy_version": ".".join(map(str, version)) if version else None,
         "version_ok": bool(version and version >= agybin.MIN_VERSION),
-        "minimum_version": ".".join(map(str, agybin.MIN_VERSION)),
+        "minimum_version": agybin.MIN_VERSION_TEXT,
         "gcp_project": gcp.get("project"),
         "gcp_location": gcp.get("location"),
         "permission_allow_rules": len((settings.get("permissions") or {}).get("allow") or []),
@@ -227,8 +227,8 @@ def setup_report() -> dict[str, Any]:
     problems = []
     if not binary:
         problems.append("agy is not installed or not on PATH. Install it, or set AGY_BIN to its path.")
-    elif not report["version_ok"]:
-        problems.append(f"agy {report['agy_version']} is older than {report['minimum_version']}; run `agy update`.")
+    elif report["isolation"] == "host" and (reason := agybin.version_problem(version)):
+        problems.append(f"{reason}; run `agy update`.")
     if binary and signed_in is False:
         problems.append("agy is not signed in. Run `agy` once in a terminal and sign in.")
     elif binary and signed_in is None:
@@ -302,6 +302,8 @@ def start_job(
     root = gitctx.repo_root(os.getcwd())
     store = JobStore(root)
     isolation = choose_isolation(args)
+    if isolation == "host":
+        require_host_version(binary)
     job_id = new_job_id(kind)
     job_dir = store.jobs / job_id
     worktree = store.dir / "worktrees" / job_id
@@ -360,6 +362,12 @@ def start_job(
     (job_dir / "next-message.md").write_text(message, encoding="utf-8")
     spawn_worker(store, job_id)
     return wait_or_report(store, job_id, args)
+
+
+def require_host_version(binary: Path) -> None:
+    reason = agybin.version_problem(agybin.agy_version(binary))
+    if reason:
+        raise ClassifiedError("agy-missing", f"{reason}; run `agy update`.")
 
 
 def choose_isolation(args: argparse.Namespace) -> str:
@@ -629,12 +637,23 @@ def continue_job(
     job_id = job["id"]
     wanted_iso = getattr(args, "isolation", None) or "auto"
 
+    current_iso = job.get("isolation") or "host"
+    if wanted_iso != "auto" and wanted_iso != current_iso:
+        raise UsageError(f"Job {job_id} uses {current_iso} isolation; start a new job to use {wanted_iso}.")
+    binary = Path(job["agy_bin"])
+    if current_iso == "host":
+        binary = agybin.find_agy() or binary
+        require_host_version(binary)
+    else:
+        reason = container.unavailable_reason()
+        if reason:
+            raise ClassifiedError("container", f"container isolation is not available: {reason}.")
+
     def mutate(record: dict[str, Any]) -> None:
         if record.get("status") in ACTIVE_STATUSES:
             raise UsageError(f"Job {job_id} is still running.")
-        current_iso = record.get("isolation") or "host"
-        if wanted_iso != "auto" and wanted_iso != current_iso:
-            raise UsageError(f"Job {job_id} uses {current_iso} isolation; start a new job to use {wanted_iso}.")
+        if record.get("generation") != job.get("generation"):
+            raise UsageError(f"Job {job_id} has already resumed; check its latest result.")
         extra_dirs = _resolve_read_dirs(getattr(args, "read_dir", None), current_iso == "container")
         # Checked under the lock that cleanup and expiry also take.
         worktree = record.get("worktree")
@@ -645,6 +664,7 @@ def continue_job(
         record.update(
             {
                 "status": "queued",
+                "agy_bin": str(binary),
                 "phase": f"resuming ({round_kind})",
                 "next_round_kind": round_kind,
                 "error": None,
@@ -1135,7 +1155,7 @@ def build_parser(*, codex: bool = False) -> argparse.ArgumentParser:
 def _split_prose_preserving_quotes(raw: str) -> list[str]:
     """Split on whitespace while keeping balanced "..." and standalone '...' tokens intact.
 
-    Used only when shlex.split fails (for example, an apostrophe in "caller's").
+    Used when shell quoting is incomplete.
     Unlike shlex.shlex, '#' is never a comment and backslashes outside double
     quotes stay literal, so '#91' and 'C:\\temp' survive unchanged.
     """
@@ -1168,7 +1188,7 @@ def _split_prose_preserving_quotes(raw: str) -> list[str]:
                 inner.append(cur)
                 end += 1
             if closed and (end == length or raw[end].isspace()):
-                buf.extend(inner)
+                buf.append("".join(inner))
                 index = end
                 continue
         if ch == "'" and (not buf or buf[-1] == "="):
@@ -1184,8 +1204,42 @@ def _split_prose_preserving_quotes(raw: str) -> list[str]:
     return tokens
 
 
+# Match quoted shell spans and escapes before looking for a word's apostrophe.
+_RAW_QUOTES = re.compile(
+    r"""
+    (?P<escape>\\.)
+    | (?P<double>"(?:\\.|[^"\\])*")
+    | (?<!\S)'[^']*'(?=\s|$|['"\\])
+    | (?P<prose>
+        (?<=[\w`)}\]])'(?=(?:s|t|d|m|ll|re|ve|all)\b|[A-Z])
+        | (?<=[sS`)}\]])'(?=\s|$|[.,!?])
+        | (?<!\S)'(?=\d{2}s\b)
+    )
+    | '[^']*'
+    """,
+    re.VERBOSE | re.DOTALL,
+)
+
+
+def _quote_prose(match: re.Match[str]) -> str:
+    token = match.group()
+    if match.lastgroup == "prose":
+        return r"\'"
+    if match.lastgroup == "escape" and token[1] not in ("\\", "'", '"') and not token[1].isspace():
+        return "\\" + token  # A backslash in C:\temp is data.
+    if match.lastgroup == "double":
+        index = match.start() - 1
+        while index >= 0 and match.string[index].isspace():
+            index -= 1
+        if index >= 0 and match.string[index] in "{[:,":
+            return shlex.quote(token)  # Keep quotes in inline JSON.
+    return token
+
+
 def _split_raw(raw: str) -> list[str]:
     try:
+        if any(match.lastgroup == "prose" for match in _RAW_QUOTES.finditer(raw)):
+            return shlex.split(_RAW_QUOTES.sub(_quote_prose, raw))
         return shlex.split(raw)
     except ValueError:
         return _split_prose_preserving_quotes(raw)
