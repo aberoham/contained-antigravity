@@ -1151,7 +1151,7 @@ def build_parser(*, codex: bool = False) -> argparse.ArgumentParser:
 def _split_prose_preserving_quotes(raw: str) -> list[str]:
     """Split on whitespace while keeping balanced "..." and standalone '...' tokens intact.
 
-    Used for unquoted prose apostrophes and incomplete shell quoting.
+    Used when shell quoting is incomplete.
     Unlike shlex.shlex, '#' is never a comment and backslashes outside double
     quotes stay literal, so '#91' and 'C:\\temp' survive unchanged.
     """
@@ -1200,15 +1200,28 @@ def _split_prose_preserving_quotes(raw: str) -> list[str]:
     return tokens
 
 
-# Skip escaped characters and complete quoted strings when looking for a
-# possessive or contraction. Apostrophes inside those strings are shell data.
-_RAW_QUOTES = re.compile(r"""\\.|"(?:\\.|[^"\\])*" | (?<!\w)'[^']*' | (?P<prose>(?<=\w)')""", re.VERBOSE)
+# Match quoted shell spans and escapes before looking for a word's apostrophe.
+_RAW_QUOTES = re.compile(
+    r"""(?P<escape>\\.) | (?P<double>"(?:\\.|[^"\\])*") | (?P<prose>(?<=\w)') | '[^']*'""",
+    re.VERBOSE,
+)
+
+
+def _quote_prose(match: re.Match[str]) -> str:
+    token = match.group()
+    if match.lastgroup == "prose":
+        return r"\'"
+    if match.lastgroup == "escape" and token[1] not in "\\\\'\"" and not token[1].isspace():
+        return "\\" + token  # A backslash in C:\temp is data.
+    if match.lastgroup == "double" and match.start() and match.string[match.start() - 1] in "{[:,":
+        return shlex.quote(token)  # Keep quotes in inline JSON.
+    return token
 
 
 def _split_raw(raw: str) -> list[str]:
-    if any(match.lastgroup == "prose" for match in _RAW_QUOTES.finditer(raw)):
-        return _split_prose_preserving_quotes(raw)
     try:
+        if any(match.lastgroup == "prose" for match in _RAW_QUOTES.finditer(raw)):
+            return shlex.split(_RAW_QUOTES.sub(_quote_prose, raw))
         return shlex.split(raw)
     except ValueError:
         return _split_prose_preserving_quotes(raw)

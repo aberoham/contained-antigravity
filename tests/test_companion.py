@@ -109,6 +109,17 @@ def test_raw_splitting_preserves_quoted_paths_beside_prose_apostrophes():
     for pair in ("the caller's and the callee's", "the users' and groups'"):
         raw = pair + ' checks #91 in C:\\temp with {"id":"1"}'
         assert split_arguments(["plan", "--raw", raw]) == ["plan", *raw.split()]
+    mixed = r"""caller's and callee's --read-dir my\ folder --note "" 'a'"'"'b c'"""
+    assert split_arguments(["plan", "--raw", mixed])[1:] == [
+        "caller's",
+        "and",
+        "callee's",
+        "--read-dir",
+        "my folder",
+        "--note",
+        "",
+        "a'b c",
+    ]
     preserved = "the users' and groups' settings and don't edit #91 in C:\\temp"
     assert split_arguments(["task", "--raw", preserved]) == ["task", *preserved.split()]
     issue_ref = 'check the caller\'s fix for #91 distinguishes {"id":"1"} from {"id":1}'
