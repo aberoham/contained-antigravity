@@ -39,7 +39,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import agybin
-from .state import state_root
+from .state import codex_state_root, state_root
 
 IMAGE_ENV = "AGY_IMAGE"
 DEFAULT_IMAGE = "agy-sandbox:experiment"
@@ -357,6 +357,8 @@ def overlaps_protected(directory: Path) -> str | None:
         ("the container sign-in", signin_home()),
         ("the host's agy sign-in", agybin.agy_home()),
         ("the plugin's state directory", state_root()),
+        # Codex jobs keep token copies in their homes, so Claude Code jobs must not mount them either.
+        ("the Codex job state directory", codex_state_root()),
     )
     for label, protected in protected_dirs:
         real = Path(os.path.realpath(protected))

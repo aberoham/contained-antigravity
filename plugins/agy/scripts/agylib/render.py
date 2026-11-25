@@ -121,8 +121,13 @@ def next_steps(job: dict[str, Any], stored: dict[str, Any] | None = None) -> str
     status = job.get("status")
     if job.get("client") == "codex":
         if status == "needs-approval":
-            commands = "\n".join(f"- `{c}`" for c in job.get("queued_commands") or [])
-            return f"Review incomplete. agy requested approval for:\n{commands}"
+            queued = job.get("queued_commands") or []
+            if not queued:
+                return "Review incomplete. agy stopped to ask for approval but recorded no commands."
+            commands = "\n".join(f"- `{c}`" for c in queued)
+            return (
+                f"Review incomplete. agy requested approval for these commands, which Codex cannot grant:\n{commands}"
+            )
         if status in ("queued", "running", "resuming"):
             return f"Use the agy-review skill with job ID {job_id} for progress or cancellation."
         return f"Review job ID: {job_id}"

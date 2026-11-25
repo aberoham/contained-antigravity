@@ -7,6 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import agy_companion
 import pytest
 from agy_companion import build_parser
 from agylib import render
@@ -39,6 +40,20 @@ def test_codex_result_points_to_reviewed_commit_when_head_moves():
         "repo_root": "/repo",
     }
     assert f"git show {commit}:<path>" in render.result_text(job, None)
+
+
+def test_codex_approval_stop_lists_queued_commands_without_slash_commands():
+    job = {"client": "codex", "id": "review-1", "status": "needs-approval", "queued_commands": ["pytest -q"]}
+    text = render.next_steps(job)
+    assert "`pytest -q`" in text and "Codex cannot grant" in text and "/agy:" not in text
+    assert "recorded no commands" in render.next_steps(dict(job, queued_commands=[]))
+
+
+def test_codex_missing_agy_points_to_the_codex_setup(monkeypatch, capsys):
+    monkeypatch.setattr(agy_companion.agybin, "find_agy", lambda: None)
+    assert agy_companion.main(["review"], codex=True) != 0
+    err = capsys.readouterr().err
+    assert "agy_codex.py setup" in err and "/agy:" not in err
 
 
 def test_codex_review_round_trip(contained):

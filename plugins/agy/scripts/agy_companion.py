@@ -297,7 +297,8 @@ def start_job(
     """
     binary = agybin.find_agy()
     if not binary:
-        raise ClassifiedError("agy-missing", "agy is not installed or not on PATH. Run /agy:setup.")
+        setup = "agy_codex.py setup" if getattr(args, "codex", False) else "/agy:setup"
+        raise ClassifiedError("agy-missing", f"agy is not installed or not on PATH. Run {setup}.")
     root = gitctx.repo_root(os.getcwd())
     store = JobStore(root)
     isolation = choose_isolation(args)

@@ -52,7 +52,9 @@ def _check_yaml_frontmatter(path):
 
 def test_every_skill_has_description_and_gotchas():
     skills = sorted((PLUGIN / "skills").glob("*/SKILL.md"))
-    assert skills
+    codex_skills = sorted((PLUGIN / "codex-skills").glob("*/SKILL.md"))
+    assert skills and codex_skills
+    skills += codex_skills
     for skill in skills:
         _check_yaml_frontmatter(skill)
         text = skill.read_text(encoding="utf-8")

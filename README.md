@@ -176,8 +176,9 @@ codes, and known problems.
 - [`containers/`](containers): the image and the sign-in script. The design
   follows Matt Pocock's [Sandcastle](https://github.com/mattpocock/sandcastle).
 
-The repository was called `aberoham/agy-cc` until November 2026. GitHub
-redirects the old name, and the marketplace keeps the name `agy-cc`, so an
+The repository was called `aberoham/agy-cc`, then
+`aberoham/contained-antigravity-for-claude-code`, until November 2026. GitHub
+redirects the old names, and the marketplace keeps the name `agy-cc`, so an
 existing install needs no change.
 
 ## Development

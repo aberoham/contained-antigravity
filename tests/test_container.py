@@ -378,6 +378,11 @@ def test_read_dirs_may_not_expose_the_host_sign_in(tmp_path, monkeypatch):
     assert container.overlaps_protected(tmp_path / "elsewhere") is None
 
 
+def test_read_dirs_may_not_expose_codex_job_state(tmp_path, monkeypatch):
+    _signins(tmp_path, monkeypatch)
+    assert "Codex job state" in (container.overlaps_protected(tmp_path / "home" / ".cache") or "")
+
+
 def test_a_job_gets_the_token_bytes_that_were_checked_even_if_the_file_changes(tmp_path, monkeypatch):
     host, _ = _signins(tmp_path, monkeypatch)
     _token(host, "checked", 2000)
