@@ -84,6 +84,46 @@ def test_codex_review_round_trip(contained):
     assert job["writable"] is False and job["isolation"] == "container"
 
 
+def test_codex_read_dirs_respect_configured_claude_paths(contained, tmp_path):
+    inherited = tmp_path / "legacy" / "state"
+    plugin_data = tmp_path / "plugin-data"
+    config = tmp_path / "profile"
+    public = config / "shared"
+    public.mkdir(parents=True)
+    env = dict(
+        contained.env,
+        AGY_COMPANION_STATE_DIR=str(inherited),
+        CLAUDE_PLUGIN_DATA=str(plugin_data),
+        CLAUDE_CONFIG_DIR=str(config),
+        FAKE_AGY_SCENARIO="review",
+    )
+
+    def review(directory):
+        return subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPTS / "agy_codex.py"),
+                "review",
+                "--isolation",
+                "container",
+                "--read-dir",
+                str(directory),
+            ],
+            cwd=contained.repo,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+    for directory in (inherited.parent, plugin_data, config / "plugins" / "data" / "child"):
+        directory.mkdir(parents=True, exist_ok=True)
+        result = review(directory)
+        assert result.returncode == 2 and "--read-dir refused" in result.stderr
+    result = review(public)
+    assert result.returncode == 0 and "Verdict:" in result.stdout
+
+
 def test_codex_approval_stop_removes_the_host_worktree(companion):
     env = dict(companion.env, FAKE_AGY_SCENARIO="task")
     proc = subprocess.run(

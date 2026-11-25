@@ -40,7 +40,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import agybin
-from .state import codex_state_root, state_root
+from .state import INHERITED_STATE_DIR_ENV, PLUGIN_DATA_ENV, codex_state_root, state_root
 
 IMAGE_ENV = "AGY_IMAGE"
 DEFAULT_IMAGE = "agy-sandbox:experiment"
@@ -354,7 +354,7 @@ def remove_tree(path: Path) -> None:
 def overlaps_protected(directory: Path) -> str | None:
     """Why a --read-dir may not be mounted: it would expose the sign-in or other jobs' state."""
     wanted = Path(os.path.realpath(directory))
-    protected_dirs = (
+    protected_dirs = [
         ("the container sign-in", signin_home()),
         ("the host's agy sign-in", agybin.agy_home()),
         ("the plugin's state directory", state_root()),
@@ -364,7 +364,13 @@ def overlaps_protected(directory: Path) -> str | None:
         ("the Codex job state directory", codex_state_root()),
         ("Claude Code's plugin data", Path.home() / ".claude" / "plugins" / "data"),
         ("the fallback job state directory", Path(tempfile.gettempdir()) / "agy-companion"),
-    )
+    ]
+    if inherited := os.environ.get(INHERITED_STATE_DIR_ENV):
+        protected_dirs.append(("the inherited job state directory", Path(inherited)))
+    if plugin_data := os.environ.get(PLUGIN_DATA_ENV):
+        protected_dirs.append(("Claude Code's plugin data", Path(plugin_data)))
+    if config_dir := os.environ.get("CLAUDE_CONFIG_DIR"):
+        protected_dirs.append(("Claude Code's configured plugin data", Path(config_dir) / "plugins" / "data"))
     for label, protected in protected_dirs:
         real = Path(os.path.realpath(protected))
         if wanted == real or wanted in real.parents or real in wanted.parents:
