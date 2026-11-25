@@ -67,6 +67,22 @@ def test_jobs_check_the_version_of_the_selected_runtime(contained, version):
     assert contained.jobs() == []
 
 
+def test_container_setup_accepts_supported_image_with_older_host(contained):
+    settings = Path(contained.env["HOME"]) / ".gemini" / "antigravity-cli" / "settings.json"
+    settings.write_text('{"gcp": {"project": "p"}}')
+    report = json.loads(contained.run("setup", "--json", FAKE_HOST_VERSION="1.5.9").stdout)
+    assert report["isolation"] == "container" and report["ready"]
+    assert not report["version_ok"] and report["image_agy_version"] == "1.5.15"
+
+
+def test_container_resume_reports_unreachable_daemon_and_preserves_job(contained):
+    contained.run("task", "--isolation", "container", "fix the bug", scenario="container")
+    original = contained.job()
+    refused = contained.run("task", "--resume-last", "continue", check=False, FAKE_DOCKER_MODE="absent")
+    assert refused.returncode == 17 and "Docker daemon" in refused.stderr
+    assert contained.job() == original
+
+
 @pytest.mark.parametrize("isolation,key", [("host", "FAKE_HOST_VERSION"), ("container", "FAKE_IMAGE_VERSION")])
 def test_resume_checks_runtime_before_changing_job_state(contained, isolation, key):
     contained.run("task", "--no-os-sandbox", "--isolation", isolation, "fix the bug", scenario="task")
@@ -104,7 +120,7 @@ def test_review_runs_in_a_container_with_only_the_job_paths_mounted(contained, r
     signin = Path(contained.env["AGY_CONTAINER_HOME"])
     job_mount = worktree.parent.parent / "jobs" / job["id"] / "container"
     version, probe, run = contained.docker_runs()
-    assert version[-1] == "--version"
+    assert version[-1] == "--version" and f"--user={os.getuid()}:{os.getgid()}" in version
     assert "touch" in probe
     assert [o for o in probe if o.startswith("--volume=")] == [f"--volume={state}:{state}"]
     options = _run_options(run)

@@ -42,10 +42,12 @@ RUN (getent group "${GID}" || groupadd -g "${GID}" agent) \
 # Google's installer checks the SHA-512 from its manifest. Assert the binary
 # exists in the same layer, because a failed download can still exit 0.
 ARG AGY_MIN_VERSION
-RUN curl -fsSL https://antigravity.google/cli/install.sh -o /tmp/install.sh \
+RUN : "${AGY_MIN_VERSION:?build with containers/build.sh}" \
+    && curl -fsSL https://antigravity.google/cli/install.sh -o /tmp/install.sh \
     && bash /tmp/install.sh --dir /opt/agy/bin \
     && installed="$(/opt/agy/bin/agy --version)" \
-    && dpkg --compare-versions "${installed}" ge "${AGY_MIN_VERSION}" \
+    && version="$(echo "${installed}" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" \
+    && test -n "${version}" && dpkg --compare-versions "${version}" ge "${AGY_MIN_VERSION}" \
     && rm /tmp/install.sh
 ENV PATH=/opt/agy/bin:${PATH}
 

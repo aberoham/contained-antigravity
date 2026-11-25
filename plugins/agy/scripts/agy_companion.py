@@ -227,7 +227,7 @@ def setup_report() -> dict[str, Any]:
     problems = []
     if not binary:
         problems.append("agy is not installed or not on PATH. Install it, or set AGY_BIN to its path.")
-    elif reason := agybin.version_problem(version):
+    elif report["isolation"] == "host" and (reason := agybin.version_problem(version)):
         problems.append(f"{reason}; run `agy update`.")
     if binary and signed_in is False:
         problems.append("agy is not signed in. Run `agy` once in a terminal and sign in.")
@@ -637,30 +637,34 @@ def continue_job(
     job_id = job["id"]
     wanted_iso = getattr(args, "isolation", None) or "auto"
 
+    current_iso = job.get("isolation") or "host"
+    if wanted_iso != "auto" and wanted_iso != current_iso:
+        raise UsageError(f"Job {job_id} uses {current_iso} isolation; start a new job to use {wanted_iso}.")
+    binary = Path(job["agy_bin"])
+    if current_iso == "host":
+        binary = agybin.find_agy() or binary
+        require_host_version(binary)
+    else:
+        reason = container.unavailable_reason()
+        if reason:
+            raise ClassifiedError("container", f"container isolation is not available: {reason}.")
+
     def mutate(record: dict[str, Any]) -> None:
         if record.get("status") in ACTIVE_STATUSES:
             raise UsageError(f"Job {job_id} is still running.")
-        current_iso = record.get("isolation") or "host"
-        if wanted_iso != "auto" and wanted_iso != current_iso:
-            raise UsageError(f"Job {job_id} uses {current_iso} isolation; start a new job to use {wanted_iso}.")
+        if record.get("generation") != job.get("generation"):
+            raise UsageError(f"Job {job_id} has already resumed; check its latest result.")
         extra_dirs = _resolve_read_dirs(getattr(args, "read_dir", None), current_iso == "container")
         # Checked under the lock that cleanup and expiry also take.
         worktree = record.get("worktree")
         if not worktree or not Path(worktree).is_dir():
             raise UsageError(f"Job {job_id}'s working copy no longer exists; start a new job.")
-        if current_iso == "host":
-            require_host_version(Path(record["agy_bin"]))
-        else:
-            reason = agybin.version_problem(container.image_version())
-            if reason:
-                raise ClassifiedError(
-                    "container", f"image {container.image_name()}: {reason}; rebuild with containers/build.sh."
-                )
         finished = parse_iso(record.get("completed_at"))
         merged_dirs = list(dict.fromkeys([*(record.get("read_dirs") or []), *extra_dirs]))
         record.update(
             {
                 "status": "queued",
+                "agy_bin": str(binary),
                 "phase": f"resuming ({round_kind})",
                 "next_round_kind": round_kind,
                 "error": None,
@@ -1184,7 +1188,7 @@ def _split_prose_preserving_quotes(raw: str) -> list[str]:
                 inner.append(cur)
                 end += 1
             if closed and (end == length or raw[end].isspace()):
-                buf.extend(inner)
+                buf.append("".join(inner))
                 index = end
                 continue
         if ch == "'" and (not buf or buf[-1] == "="):
@@ -1202,8 +1206,18 @@ def _split_prose_preserving_quotes(raw: str) -> list[str]:
 
 # Match quoted shell spans and escapes before looking for a word's apostrophe.
 _RAW_QUOTES = re.compile(
-    r"""(?P<escape>\\.) | (?P<double>"(?:\\.|[^"\\])*") | (?P<prose>(?<=\w)') | '[^']*'""",
-    re.VERBOSE,
+    r"""
+    (?P<escape>\\.)
+    | (?P<double>"(?:\\.|[^"\\])*")
+    | (?<!\S)'[^']*'(?=\s|$|['"\\])
+    | (?P<prose>
+        (?<=[\w`)}\]])'(?=(?:s|t|d|m|ll|re|ve|all)\b|[A-Z])
+        | (?<=[sS`)}\]])'(?=\s|$|[.,!?])
+        | (?<!\S)'(?=\d{2}s\b)
+    )
+    | '[^']*'
+    """,
+    re.VERBOSE | re.DOTALL,
 )
 
 
@@ -1211,10 +1225,14 @@ def _quote_prose(match: re.Match[str]) -> str:
     token = match.group()
     if match.lastgroup == "prose":
         return r"\'"
-    if match.lastgroup == "escape" and token[1] not in "\\\\'\"" and not token[1].isspace():
+    if match.lastgroup == "escape" and token[1] not in ("\\", "'", '"') and not token[1].isspace():
         return "\\" + token  # A backslash in C:\temp is data.
-    if match.lastgroup == "double" and match.start() and match.string[match.start() - 1] in "{[:,":
-        return shlex.quote(token)  # Keep quotes in inline JSON.
+    if match.lastgroup == "double":
+        index = match.start() - 1
+        while index >= 0 and match.string[index].isspace():
+            index -= 1
+        if index >= 0 and match.string[index] in "{[:,":
+            return shlex.quote(token)  # Keep quotes in inline JSON.
     return token
 
 

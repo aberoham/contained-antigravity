@@ -399,7 +399,16 @@ def image_present() -> bool:
 
 
 def image_version() -> tuple[int, ...] | None:
-    proc = _docker("run", "--rm", "--network=none", image_name(), "--version", timeout=30)
+    proc = _docker(
+        "run",
+        "--rm",
+        "--pull=never",
+        "--network=none",
+        f"--user={os.getuid()}:{os.getgid()}",
+        image_name(),
+        "--version",
+        timeout=30,
+    )
     return agybin.parse_version(proc.stdout + proc.stderr) if proc and proc.returncode == 0 else None
 
 

@@ -106,7 +106,7 @@ def test_raw_splitting_preserves_quoted_paths_beside_prose_apostrophes():
             words = split_arguments(["plan", "--raw", raw])
             assert words[:3] == ["plan", "--request-file", "packet folder/request.md"]
             assert " ".join(words[3:]) == prose
-    for pair in ("the caller's and the callee's", "the users' and groups'"):
+    for pair in ("the caller's and the callee's", "the users' and groups'", "`caller`'s and foo()'s"):
         raw = pair + ' checks #91 in C:\\temp with {"id":"1"}'
         assert split_arguments(["plan", "--raw", raw]) == ["plan", *raw.split()]
     mixed = r"""caller's and callee's --read-dir my\ folder --note "" 'a'"'"'b c'"""
@@ -120,6 +120,22 @@ def test_raw_splitting_preserves_quoted_paths_beside_prose_apostrophes():
         "",
         "a'b c",
     ]
+    assert split_arguments(["plan", "--raw", "--read-dir my' 'folder --read-dir=a'b c'd"]) == [
+        "plan",
+        "--read-dir",
+        "my folder",
+        "--read-dir=ab cd",
+    ]
+    assert split_arguments(["plan", "--raw", "from the '90s --read-dir 'packet folder'"]) == [
+        "plan",
+        "from",
+        "the",
+        "'90s",
+        "--read-dir",
+        "packet folder",
+    ]
+    spaced = """check the caller's and callee's {"id": "1"} vs {"id": 1}"""
+    assert split_arguments(["plan", "--raw", spaced]) == ["plan", *spaced.split()]
     preserved = "the users' and groups' settings and don't edit #91 in C:\\temp"
     assert split_arguments(["task", "--raw", preserved]) == ["task", *preserved.split()]
     issue_ref = 'check the caller\'s fix for #91 distinguishes {"id":"1"} from {"id":1}'

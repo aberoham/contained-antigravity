@@ -248,11 +248,11 @@ yuting0624/antigravity-for-claude-code.
 | 10   | `quota`       | Google refused the request for quota                      |
 | 11   | `signin`      | Not signed in, or the sign-in expired                     |
 | 12   | `timeout`     | The job ran past its time limit                           |
-| 13   | `agy-missing` | agy is not installed or not on PATH                       |
+| 13   | `agy-missing` | Host agy is missing or its version could not be confirmed as supported |
 | 14   | `model`       | agy did not recognise the model                           |
 | 15   | `licence`     | Google reclaimed the Gemini Enterprise seat               |
 | 16   | `stall`       | Still stalled after two resumes on the same model         |
-| 17   | `container`   | Docker is not running, the image is missing, or Docker did not remove a job's container |
+| 17   | `container`   | Docker is not running, the image is missing or incompatible, or Docker did not remove a job's container |
 
 The class comes from agy's stderr, agy's own log and its error text, never
 from the model's reply. The quota class matches Google's `RESOURCE_EXHAUSTED`
