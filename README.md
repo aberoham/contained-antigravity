@@ -14,8 +14,8 @@ Run isolated read-only code reviews and adversarial reviews with Google's Antigr
 Start from a trusted local clone (use a checkout containing Codex support for the Codex preview):
 
 ```sh
-git clone https://github.com/aberoham/contained-antigravity-for-claude-code.git
-cd contained-antigravity-for-claude-code
+git clone https://github.com/aberoham/contained-antigravity.git
+cd contained-antigravity
 ```
 
 ### Claude Code
@@ -23,7 +23,7 @@ cd contained-antigravity-for-claude-code
 Add the marketplace and install:
 
 ```text
-/plugin marketplace add aberoham/contained-antigravity-for-claude-code
+/plugin marketplace add aberoham/contained-antigravity
 /plugin install agy@agy-cc
 ```
 
