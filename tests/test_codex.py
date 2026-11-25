@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from agy_companion import build_parser
+from agylib import render
 from conftest import REPO, SCRIPTS
 
 
@@ -26,6 +27,18 @@ def test_codex_rejects_ambiguous_or_unsupported_commands(args):
     with pytest.raises(SystemExit) as error:
         build_parser(codex=True).parse_args(args)
     assert error.value.code == 2
+
+
+def test_codex_result_points_to_reviewed_commit_when_head_moves():
+    commit = "1234abcd" * 5
+    job = {
+        "client": "codex",
+        "kind": "review",
+        "target": {"head": "HEAD", "head_commit": commit},
+        "worktree": "/job/worktree",
+        "repo_root": "/repo",
+    }
+    assert f"git show {commit}:<path>" in render.result_text(job, None)
 
 
 def test_codex_review_round_trip(contained):

@@ -19,7 +19,7 @@ that path to an absolute path before invoking it. Keep the checkout as cwd.
   running foreground review, use `result JOB_ID --wait-seconds 120` until
   terminal. Use `status JOB_ID` for progress and `cancel JOB_ID` on request.
 - Inspect the reported verdict and findings. Check quoted code, paths and
-  lines against the reviewed revision (use `git show <head>:<path>` for
+  lines against the reviewed revision (use the reported commit in `git show <commit>:<path>` for
   an explicit head). Report verified findings first and identify any
   claims you could not verify. Surface an incomplete or failed review.
 

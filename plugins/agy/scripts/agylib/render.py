@@ -187,7 +187,10 @@ def result_text(job: dict[str, Any], stored: dict[str, Any] | None) -> str:
             text = text.replace(variant, root)
         for pattern in FILE_LINKS:
             text = pattern.sub(lambda match: _relative_reference(match, root), text)
-        head = (job.get("target") or {}).get("head")
+        target = job.get("target") or {}
+        head = target.get("head")
+        if head and job.get("client") == "codex":
+            head = target.get("head_commit") or head
         if head:
             # The user's checkout holds some other commit, so a path there is not the reviewed file.
             text = re.sub(r"(?<![\w.:/-])" + re.escape(root.rstrip("/") + "/"), "", text)
