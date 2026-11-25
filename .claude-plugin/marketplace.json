@@ -7,7 +7,7 @@
     {
       "name": "agy",
       "source": "./plugins/agy",
-      "description": "Run isolated Antigravity CLI (agy) code reviews from Claude Code or local Codex. Claude Code also supports plans and rescue tasks.",
+      "description": "Run isolated code reviews and adversarial reviews with Google's Antigravity CLI (agy) from Claude Code and local Codex, with planning, rescue tasks, and patch application in Claude Code.",
       "author": {
         "name": "Abraham Ingersoll"
       },

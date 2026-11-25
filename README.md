@@ -1,86 +1,44 @@
-# Contained Antigravity for Claude Code and Codex
+# Contained Antigravity
 
-A Claude Code plugin that hands work to Google's Antigravity CLI (`agy`,
-Gemini 4): code reviews, adversarial reviews, implementation plans and
-debugging or implementation tasks. Each one runs as a tracked background job
-on its own copy of your repository, inside a container when Docker is
-available. agy never edits your checkout and never runs with `--yolo` on your
-workstation.
+Run isolated read-only code reviews and adversarial reviews with Google's Antigravity CLI (`agy`) from Claude Code or local Codex. Claude Code also supports planning, rescue tasks, and patch application. Both clients share the same local Python runner and `agy` sign-in. `agy` sends reviewed code to Google.
 
-Local Codex users can use the same plugin for read-only code reviews and
-adversarial reviews. Both clients use the same agy runner and Gemini sign-in.
+## Prerequisites
 
-## Install in Codex
+- **Python 3.9+** and **git**
+- **agy 1.5.10+** on `PATH` or set via `AGY_BIN`
+- A working metered Google Cloud Agent Platform sign-in or an eligible Gemini Enterprise seat (see the [Gemini Enterprise guide](plugins/agy/docs/gemini-enterprise.md)). Run `agy` in a terminal to sign in to your Google Cloud project, then verify with `agy models`.
+- **Docker or Colima** (optional) for container isolation. Build the image once from your checkout with `./containers/build.sh`. Without a usable container runtime, jobs default to host isolation. Passing `--isolation container` requires Docker and fails if it is unavailable. On Linux hosts using a system keyring for `agy`, run `./containers/signin.sh` from the clone to create a container-only sign-in.
 
-From a local clone of this repository, run:
+## Installation
+
+Start from a trusted local clone (use a checkout containing Codex support for the Codex preview):
+
+```sh
+git clone https://github.com/aberoham/contained-antigravity-for-claude-code.git
+cd contained-antigravity-for-claude-code
+```
+
+### Claude Code
+
+Add the marketplace and install:
+
+```text
+/plugin marketplace add aberoham/contained-antigravity-for-claude-code
+/plugin install agy@agy-cc
+```
+
+For a local branch preview, substitute `/plugin marketplace add ./`. Run `/agy:setup` to verify your setup, then try `/agy:review`. Update existing installs with `/plugin marketplace update agy-cc` and the `/plugin` menu.
+
+### Codex
+
+From a checkout with Codex support, run:
 
 ```sh
 codex plugin marketplace add .
 codex plugin add agy@agy-cc
 ```
 
-Start a new local Codex thread in the repository you want reviewed. Try
-**“Use agy to review this branch against main”** or **“Ask agy for an
-adversarial review of my working tree in the background.”** The installed
-skill is `agy:agy-review`. Keep the returned job ID to check progress,
-retrieve findings or cancel a running review, including from another thread.
-Background jobs continue after you close the thread.
-
-The Codex entry point keeps job state under `~/.cache/agy-codex/state`.
-Local Codex shell permissions still apply. The runner needs access to agy,
-its sign-in, the checkout and the job state. For container isolation,
-run `containers/build.sh` from the source clone. Without the image the
-default is host isolation. Request container isolation explicitly to
-require it. Plan, rescue, approval resume and patch apply are available
-through Claude Code.
-
-## What you need
-
-- **agy 1.5.10 or later**, installed and on `PATH`
-  (https://antigravity.google/docs/cli), or `AGY_BIN` set to its path.
-- **A Gemini Enterprise seat**, and access to the Google Cloud project that
-  agy is configured to use. Sign in once by running `agy` in a terminal
-  window. The sign-in is interactive, so it cannot run inside Claude Code.
-- **git** and **python3** 3.9 or later. The macOS system Python is enough.
-- **Docker or Colima** for container isolation. This is optional but
-  recommended. Without it, jobs run in host mode, described below.
-
-## Install in Claude Code
-
-1. In Claude Code, add this repository as a marketplace and install the
-   plugin:
-
-   ```
-   /plugin marketplace add aberoham/contained-antigravity-for-claude-code
-   /plugin install agy@agy-cc
-   ```
-
-   If Claude Code asks you to reload plugins or restart, do that before the
-   next step.
-
-2. Build the container image in a terminal. Start Docker Desktop, or run
-   `colima start`, first. The marketplace step already downloaded the
-   script:
-
-   ```
-   ~/.claude/plugins/marketplaces/agy-cc/containers/build.sh
-   ```
-
-   It builds the image for your user, and on later runs restarts Colima if
-   it has stopped. Container jobs reuse your ordinary `agy` sign-in, from
-   `~/.gemini/antigravity-cli/antigravity-oauth-token` or, on macOS, from
-   the Keychain. On a Linux host whose agy keeps its sign-in in the system
-   keyring, run `~/.claude/plugins/marketplaces/agy-cc/containers/signin.sh`
-   once in a terminal window to make a container-only sign-in. Skip this
-   step if you only want host mode.
-
-3. In Claude Code, run `/agy:setup`. It checks that agy is installed and
-   signed in, shows the Google Cloud project agy will use, and says whether
-   jobs will run in a container or on the host.
-
-To update later, run `/plugin marketplace update agy-cc` to refresh the
-listing, then update the agy plugin from the `/plugin` menu. Run `build.sh`
-again if the image is ever deleted, for example by `docker system prune`.
+Open a new thread in your target repository and ask, `"Use agy to review this branch against main"`. Codex invokes the `agy:agy-review` skill and prompts for shell approval as usual. Use the full job ID for status, results, or cancellation. Jobs continue after thread closure, store state in `~/.cache/agy-codex/state`, and accept `--isolation container`.
 
 ## Use
 
@@ -190,10 +148,7 @@ Sources:
 
 ## How agy is contained
 
-- **Container mode** (Docker or Colima, and the image): agy runs in a Linux
-  container that sees only the job's copy of the repository, the job's own
-  state, the plugin's files and any directory you pass with `--read-dir`. Your home directory, `~/.ssh`, `~/.aws` and
-  keychain are not mounted. Only a patch comes back to the host.
+- **Container mode** (Docker or Colima): `agy` runs inside a Linux container with access only to the job's repository copy, mounted job data, plugin files, and `--read-dir` paths. The host home and Keychain stay unmounted. Each job gets a `0600` token copy and project settings in its private `HOME` until cleanup.
 - **Host mode** (no container): agy runs in a git worktree under a tool
   policy hook and, on macOS, a `sandbox-exec` write sandbox. Shell commands
   outside a short read-only allow-list are queued for Claude, which runs
