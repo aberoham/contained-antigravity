@@ -49,7 +49,8 @@ def test_codex_approval_stop_lists_queued_commands_without_slash_commands():
     assert "recorded no commands" in render.next_steps(dict(job, queued_commands=[]))
 
 
-def test_codex_missing_agy_points_to_the_codex_setup(monkeypatch, capsys):
+def test_codex_missing_agy_points_to_the_codex_setup(repo, monkeypatch, capsys):
+    monkeypatch.chdir(repo)
     monkeypatch.setattr(agy_companion.agybin, "find_agy", lambda: None)
     assert agy_companion.main(["review"], codex=True) != 0
     err = capsys.readouterr().err
