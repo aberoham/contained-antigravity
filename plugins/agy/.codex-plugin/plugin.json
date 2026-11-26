@@ -1,11 +1,11 @@
 {
   "name": "agy",
   "version": "0.2.0",
-  "description": "Ask Antigravity to review a Git change and retrieve its findings by job ID.",
+  "description": "Ask Antigravity to review changes, plan work, draft prose and run isolated coding tasks.",
   "skills": "./codex-skills/",
   "hooks": "./hooks/codex.json",
   "interface": {
     "displayName": "Contained Antigravity",
-    "shortDescription": "Read-only code reviews with your agy sign-in"
+    "shortDescription": "Reviews, plans and tasks with your agy sign-in"
   }
 }

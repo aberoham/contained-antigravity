@@ -1,4 +1,4 @@
-"""Codex entry point for local Antigravity reviews."""
+"""Codex entry point for local Antigravity jobs."""
 
 from __future__ import annotations
 

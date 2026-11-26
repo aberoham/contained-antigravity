@@ -1,6 +1,6 @@
 # Contained Antigravity Plugin
 
-Run isolated read-only and adversarial code reviews with Google's Antigravity CLI (`agy`) in Claude Code or local Codex. Claude Code also plans, rescues, and applies patches. Both clients share one local Python runner and your `agy` sign-in. `agy` sends reviewed code to Google.
+Run isolated read-only and adversarial code reviews with Google's Antigravity CLI (`agy`) in Claude Code or local Codex. Both clients can plan, delegate tasks, draft prose, apply patches and resume jobs. They share one local Python runner and your `agy` sign-in. `agy` sends reviewed code to Google.
 
 ## Prerequisites
 
@@ -11,7 +11,7 @@ Run isolated read-only and adversarial code reviews with Google's Antigravity CL
 ## Install
 
 - **Claude Code:** Run `/plugin marketplace add aberoham/contained-antigravity` (or `/plugin marketplace add ./` locally), then `/plugin install agy@contained-antigravity` and `/agy:setup`. Update via `/plugin marketplace update contained-antigravity` and `/plugin`.
-- **Codex CLI:** Run `codex plugin marketplace add aberoham/contained-antigravity` then `codex plugin add agy@contained-antigravity` to install `agy:agy-review` without cloning (for local plugin development, run `codex plugin marketplace add .` from a checkout instead).
+- **Codex CLI:** Run `codex plugin marketplace add aberoham/contained-antigravity` then `codex plugin add agy@contained-antigravity` to install the agy skills without cloning (for local plugin development, run `codex plugin marketplace add .` from a checkout instead).
 
 From another marketplace that lists this plugin:
 
@@ -56,11 +56,12 @@ Codex reads the new catalog name when its marketplace refreshes and then cannot 
 
 ## Commands
 
-Use the slash commands below in Claude Code. In Codex, ask for a review in plain
-language, for example "use agy to review this branch against main". The
-`agy:agy-review` skill also checks setup and shows results, reports progress or
-cancels a review when you provide its full job ID. Planning, rescue, writing,
-apply and resume are available only in Claude Code.
+Use the slash commands below in Claude Code. In Codex, ask “Use agy to plan the retry change”, “Use agy to fix the failing
+test in its own working copy”, or “Use agy to rewrite this pull request
+description”. Writing runs read-only. To bring a rescue patch into your
+checkout, ask “Apply agy job <full-job-id>”. For a job waiting on approval,
+ask “Resume agy job <full-job-id> with these results” or supply a note
+explaining which commands to skip. Use the same full ID in a new thread.
 
 | Command | What it does |
 | --- | --- |
@@ -183,12 +184,12 @@ Without a container, each job gets three layers:
    - Reads are limited to the working copy and agy's artifact directory. To
      let agy read another directory, pass `--read-dir <path>` (repeatable);
      the prompt tells agy it may read there. A shell command runs without
-     Claude only when its program and every option are on a short
+     approval only when its program and every option are on a short
      allow-list (`ls`, `cat`, `head`, `tail`, `wc`, `grep`, `find`, `stat`,
      `pwd`, `echo`) and every path it names stays inside those directories.
      A `~` or glob, an option that follows symlinks or reads a list of
      further files, or a file name attached to an option sends the command
-     to Claude instead.
+     to the approval queue.
    - Reviews and plans may write only agy's own plan artifact. Tasks may write
      only inside the working copy, and never its `.git` or `.agents`
      directory, under any spelling the filesystem maps to them.
@@ -215,10 +216,10 @@ lets a command through only when the program is one of `ls`, `cat`, `head`,
 reads only inside the job's allowed directories. git is not on that list,
 because repository configuration can make even `git diff` run a program.
 
-Every other command is queued, and the job ends as `needs-approval`. Claude
-runs each queued command it judges safe with its own Bash tool, under your
-normal Claude Code permission checks, and sends the output back with
-`/agy:resume`. agy continues the same conversation in the same working copy.
+Every other command is queued, and the job ends as `needs-approval`. Claude Code
+or Codex can run each appropriate command under its normal shell permissions.
+Use `/agy:resume` in Claude Code or ask Codex to resume the full job ID.
+agy continues the same conversation in the same working copy.
 `/agy:status <job>` shows each round's duration, the time agy waited for
 Claude, and the tokens used, so you can see what the approval loop costs.
 
@@ -335,11 +336,12 @@ drives `/agy:setup` and `/agy:review` through `claude --plugin-dir`.
   `$CLAUDE_PLUGIN_DATA/state`, or the system temporary directory. The
   session-start hook exports that directory to the session as
   `AGY_COMPANION_STATE_DIR`, so commands and hooks share it.
-- **Jobs belong to the Claude session that started them.** `/agy:status`,
+- **Claude Code filters jobs by session.** `/agy:status`,
   and `/agy:cancel`, `/agy:result`, `/agy:apply` and `--resume-last` without
   a job id, see only this session's jobs. Pass a job id to reach another
   session's job; `/agy:status --all` lists them. Run from a plain terminal,
-  where no session id is set, the commands see every job.
+  where no session id is set, the commands see every Claude job. Codex keeps
+  jobs in `~/.cache/agy-codex/state` and uses full IDs across threads.
 - **`/agy:apply` checks for drift.** It refuses when a file the task changed
   has changed in your checkout since the job started, in content or mode.
   `--force` skips that check; git still refuses a patch that does not apply.

@@ -569,7 +569,7 @@ def cmd_task(args: argparse.Namespace) -> int:
     if not request:
         raise UsageError("Say what agy should do.")
     store = JobStore(gitctx.repo_root(os.getcwd()))
-    if args.resume_last:
+    if getattr(args, "resume_last", False) or getattr(args, "job", None):
         previous = resolve_own_job(
             store,
             args,
@@ -578,6 +578,8 @@ def cmd_task(args: argparse.Namespace) -> int:
             ),
         )
         if not previous:
+            if getattr(args, "job", None):
+                raise UsageError(f"No resumable task matches {args.job} in this checkout.")
             raise UsageError("No earlier agy task from this session to resume in this repository.")
         if not previous.get("writable") and not args.read_only:
             raise UsageError(
@@ -722,6 +724,8 @@ def cmd_resume(args: argparse.Namespace) -> int:
     job = store.resolve(args.job)
     if not job:
         raise UsageError("No matching agy job.")
+    if getattr(args, "codex", False) and job.get("status") != "needs-approval":
+        raise UsageError(f"Job {job['id']} is not waiting for approval.")
     if not job.get("conversation_id"):
         raise UsageError(f"Job {job['id']} has no agy conversation to resume.")
     has_file = args.results_file is not None
@@ -732,11 +736,11 @@ def cmd_resume(args: argparse.Namespace) -> int:
     if not has_file:
         message = (
             "The commands you requested were not run. Continue the task from where you stopped "
-            f"following the note below and give the complete final answer.\n\nNote from Claude: {note}\n"
+            f"following the note below and give the complete final answer.\n\nOperator note: {note}\n"
         )
     else:
         shown = results or "(the results file contained no output)"
-        body = f"{shown}\n\nNote from Claude: {note}" if note else shown
+        body = f"{shown}\n\nOperator note: {note}" if note else shown
         message = template("resume-with-results.md", COMMAND_RESULTS=body)
     return continue_job(store, job, message, "approval-resume", args)
 
@@ -1066,9 +1070,9 @@ def add_run_options(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def review_job_id(value: str) -> str:
-    if not re.fullmatch(r"(?:adversarial-)?review-[0-9]{8}-[0-9]{6}-[a-f0-9]{4}", value):
-        raise argparse.ArgumentTypeError("pass the full review job ID")
+def full_job_id(value: str) -> str:
+    if not re.fullmatch(r"(?:(?:adversarial-)?review|task|plan)-[0-9]{8}-[0-9]{6}-[a-f0-9]{4}", value):
+        raise argparse.ArgumentTypeError("pass the full job ID")
     return value
 
 
@@ -1093,7 +1097,7 @@ def build_parser(*, codex: bool = False) -> argparse.ArgumentParser:
     for name, func in (("status", cmd_status), ("result", cmd_result), ("cancel", cmd_cancel)):
         p = sub.add_parser(name)
         if codex:
-            p.add_argument("job", type=review_job_id)
+            p.add_argument("job", type=full_job_id)
         else:
             p.add_argument("job", nargs="?")
         if name == "status" and not codex:
@@ -1101,10 +1105,6 @@ def build_parser(*, codex: bool = False) -> argparse.ArgumentParser:
         if name == "result":
             p.add_argument("--wait-seconds", type=int, help="wait this long for a job that is still running")
         p.set_defaults(func=func)
-
-    if codex:
-        parser.set_defaults(codex=True)
-        return parser
 
     plan = sub.add_parser("plan")
     add_run_options(plan)
@@ -1115,23 +1115,33 @@ def build_parser(*, codex: bool = False) -> argparse.ArgumentParser:
     task = sub.add_parser("task")
     add_run_options(task)
     task.add_argument("--read-only", action="store_true")
-    task.add_argument("--resume-last", action="store_true")
+    if codex:
+        task.add_argument("--resume-job", dest="job", type=full_job_id, help="continue this task")
+    else:
+        task.add_argument("--resume-last", action="store_true")
     task.add_argument("--request-file", help="a file holding the task request, read on the host")
     task.add_argument("request", nargs="*")
     task.set_defaults(func=cmd_task)
 
     resume = sub.add_parser("resume")
     add_run_options(resume)
-    resume.add_argument("job")
+    resume.add_argument("job", type=full_job_id if codex else str)
     resume.add_argument("results_file", nargs="?")
-    resume.add_argument("--note", nargs="*")
+    resume.add_argument("--note", nargs=1 if codex else "*")
     resume.set_defaults(func=cmd_resume)
 
     apply = sub.add_parser("apply")
-    apply.add_argument("job", nargs="?")
+    if codex:
+        apply.add_argument("job", type=full_job_id)
+    else:
+        apply.add_argument("job", nargs="?")
     apply.add_argument("--check", action="store_true")
     apply.add_argument("--force", action="store_true")
     apply.set_defaults(func=cmd_apply)
+
+    if codex:
+        parser.set_defaults(codex=True)
+        return parser
 
     cleanup = sub.add_parser("cleanup")
     cleanup.add_argument("job", nargs="?")

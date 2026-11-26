@@ -18,16 +18,37 @@ def test_codex_package():
     plugin = REPO / "plugins" / "agy"
     manifest = json.loads((plugin / ".codex-plugin/plugin.json").read_text())
     assert json.loads((plugin / manifest["hooks"]).read_text()) == {"hooks": {}}
-    (skill,) = (plugin / manifest["skills"]).glob("*/SKILL.md")
-    assert (skill.parent / "../../scripts/agy_codex.py").resolve().is_file()
-    assert "name: agy-review" in skill.read_text()
+    skills = list((plugin / manifest["skills"]).glob("*/SKILL.md"))
+    assert {skill.parent.name for skill in skills} == {"agy-review", "agy-jobs"}
+    for skill in skills:
+        assert (skill.parent / "../../scripts/agy_codex.py").resolve().is_file()
 
 
-@pytest.mark.parametrize("args", [["status"], ["cancel", "review-2"], ["result"], ["apply"], ["task"], ["resume"]])
-def test_codex_rejects_ambiguous_or_unsupported_commands(args):
+@pytest.mark.parametrize("command", ["status", "result", "cancel", "apply", "resume"])
+@pytest.mark.parametrize("reference", [[], ["task-2"], ["latest"]])
+def test_codex_requires_full_job_ids(command, reference):
+    args = [command, *reference]
     with pytest.raises(SystemExit) as error:
         build_parser(codex=True).parse_args(args)
     assert error.value.code == 2
+
+
+def test_codex_note_cannot_consume_results_file():
+    parser = build_parser(codex=True)
+    job = "task-20261126-000000-abcd"
+    try:
+        args = parser.parse_args(["resume", job, "--note", "exit 0", "results.txt"])
+    except SystemExit as error:
+        # Older argparse requires the two positionals to be adjacent.
+        assert error.code == 2
+    else:
+        assert args.results_file == "results.txt" and args.note == ["exit 0"]
+
+
+def test_codex_task_rejects_implicit_or_partial_followup_ids():
+    for flags in (["--resume-last"], ["--resume-job", "task-2"]):
+        with pytest.raises(SystemExit):
+            build_parser(codex=True).parse_args(["task", *flags, "continue"])
 
 
 def test_codex_result_points_to_reviewed_commit_when_head_moves():
@@ -45,7 +66,7 @@ def test_codex_result_points_to_reviewed_commit_when_head_moves():
 def test_codex_approval_stop_lists_queued_commands_without_slash_commands():
     job = {"client": "codex", "id": "review-1", "status": "needs-approval", "queued_commands": ["pytest -q"]}
     text = render.next_steps(job)
-    assert "`pytest -q`" in text and "Codex cannot grant" in text and "/agy:" not in text
+    assert "`pytest -q`" in text and "agy_codex.py resume review-1" in text and "/agy:" not in text
     assert "recorded no commands" in render.next_steps(dict(job, queued_commands=[]))
 
 
@@ -124,20 +145,68 @@ def test_codex_read_dirs_respect_configured_claude_paths(contained, tmp_path):
     assert result.returncode == 0 and "Verdict:" in result.stdout
 
 
-def test_codex_approval_stop_removes_the_host_worktree(companion):
-    env = dict(companion.env, FAKE_AGY_SCENARIO="task")
-    proc = subprocess.run(
-        [sys.executable, str(SCRIPTS / "agy_codex.py"), "review", "--isolation", "host", "--no-os-sandbox"],
+def codex(companion, *args, scenario="reply", check=True):
+    return subprocess.run(
+        [sys.executable, str(SCRIPTS / "agy_codex.py"), *args],
         cwd=companion.repo,
-        env=env,
+        env=dict(companion.env, FAKE_AGY_SCENARIO=scenario),
         capture_output=True,
         text=True,
-        timeout=120,
+        check=check,
+        timeout=60,
     )
-    assert "Codex cannot grant" in proc.stdout, proc.stdout + proc.stderr
-    (record,) = (Path(env["HOME"]) / ".cache/agy-codex/state").glob("*/jobs/*/job.json")
+
+
+def test_codex_approval_resume_keeps_then_removes_review_worktree(companion, tmp_path):
+    out = codex(companion, "review", "--isolation", "host", "--no-os-sandbox", scenario="task").stdout
+    job_id = out.split()[1]
+    assert f"agy_codex.py resume {job_id}" in out
+    (record,) = (Path(companion.env["HOME"]) / ".cache/agy-codex/state").glob("*/jobs/*/job.json")
     job = json.loads(record.read_text())
     assert job["status"] == "needs-approval"
+    assert Path(job["worktree"]).is_dir()
+    assert f"Run approved commands in {job['worktree']}" in out
+    results = tmp_path / "empty result"
+    results.touch()
+    out = codex(companion, "resume", "--note", "exit 0", job_id, str(results), scenario="task").stdout
+    assert "Tests pass" in out
     assert not Path(job["worktree"]).exists()
-    worktrees = subprocess.run(["git", "worktree", "list"], cwd=companion.repo, capture_output=True, text=True)
-    assert len(worktrees.stdout.splitlines()) == 1, worktrees.stdout
+
+
+def test_codex_selects_concurrent_jobs_by_id(companion):
+    flags = ("--isolation", "host", "--no-os-sandbox")
+    writing = codex(companion, "task", *flags, "--read-only", "--background", "draft", scenario="stall").stdout.split()[
+        2
+    ]
+    try:
+        plan = codex(companion, "plan", *flags, "plan it", scenario="plan").stdout
+        assert "# Plan" in plan
+        assert "Status: completed" in codex(companion, "status", plan.split()[1]).stdout
+        assert "still running" in codex(companion, "result", writing).stdout
+    finally:
+        codex(companion, "cancel", writing)
+    assert "Status: cancelled" in codex(companion, "status", writing).stdout
+
+
+def test_codex_container_rescue_applies_only_on_request(contained):
+    source = contained.repo / "stats.py"
+    before = source.read_bytes()
+    out = codex(contained, "task", "fix it", scenario="container").stdout
+    job_id = out.split()[1]
+    assert f"agy_codex.py apply {job_id}" in out
+    codex(contained, "task", "--resume-job", job_id, "--read-only", "inspect", scenario="reply")
+    codex(contained, "apply", job_id, "--check")
+    assert source.read_bytes() == before
+    codex(contained, "apply", job_id)
+    assert source.read_text() == "fixed\n"
+
+
+def test_codex_writing_followup_stays_read_only(companion):
+    out = codex(companion, "task", "--no-os-sandbox", "--read-only", "draft it", scenario="task").stdout
+    job_id = out.split()[1]
+    assert "agy_codex.py apply" not in out
+    assert codex(companion, "task", "--resume-job", job_id, "edit", check=False).returncode == 2
+    out = codex(companion, "resume", job_id, "--note", "skip the command").stdout
+    assert "completed" in out
+    assert "commands you requested were not run" in companion.agy_calls()[-1]["stdin"]
+    assert codex(companion, "apply", job_id, check=False).returncode == 2

@@ -1,6 +1,6 @@
 # Contained Antigravity
 
-Run isolated read-only code reviews and adversarial reviews with Google's Antigravity CLI (`agy`) from Claude Code or local Codex. Claude Code also supports planning, rescue tasks, and patch application. Both clients share the same local Python runner and `agy` sign-in. `agy` sends reviewed code to Google.
+Run isolated read-only code reviews and adversarial reviews with Google's Antigravity CLI (`agy`) from Claude Code or local Codex. Both clients support planning, rescue tasks, writing, patch application and approval resumes. They share the same local Python runner and `agy` sign-in. `agy` sends reviewed code to Google.
 
 See [CHANGELOG.md](CHANGELOG.md) for notable changes and upgrade notes.
 
@@ -75,10 +75,12 @@ Codex reads the new catalog name when its marketplace refreshes and then cannot 
 
 **Claude Code:** use the slash commands below.
 
-**Codex:** ask for a review in plain language, for example "use agy to review
-this branch against main". The `agy:agy-review` skill also runs adversarial reviews, checks
-setup, and shows or cancels a review when you give its full job ID. Planning,
-rescue, writing, apply and resume are not available in Codex.
+In Codex, ask “Use agy to plan the retry change”, “Use agy to fix the failing
+test in its own working copy”, or “Use agy to rewrite this pull request
+description”. Writing runs read-only. To bring a rescue patch into your
+checkout, ask “Apply agy job <full-job-id>”. For a job waiting on approval,
+ask “Resume agy job <full-job-id> with these results” or supply a note
+explaining which commands to skip. Use the same full ID in a new thread.
 
 | Command | What it does |
 | --- | --- |
@@ -197,8 +199,8 @@ Sources:
 - **Container mode** (Docker or Colima): `agy` runs inside a Linux container with access only to the job's repository copy, mounted job data, plugin files, and `--read-dir` paths. The host home and Keychain stay unmounted. Each job gets a `0600` token copy and project settings in its private `HOME` until cleanup.
 - **Host mode** (no container): agy runs in a git worktree under a tool
   policy hook and, on macOS, a `sandbox-exec` write sandbox. Shell commands
-  outside a short read-only allow-list are queued for Claude, which runs
-  them under your normal Claude Code permission checks.
+  outside a short read-only allow-list are queued. Claude Code or Codex can run
+  them under its normal permission checks and resume the job with the output.
 - In both modes agy still reaches Google over the network, and the
   repository content goes to Google for the review.
 
