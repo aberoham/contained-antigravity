@@ -28,5 +28,4 @@ that path to an absolute path before invoking it. Keep the checkout as cwd.
 
 Use the full ID returned for this request on every follow-up. Jobs can
 outlive a Codex thread. If agy needs approval, report the queued commands
-and partial status. This skill supports setup, review, status, result and
-cancel. Run `setup --json` to diagnose local agy or container readiness.
+and partial status. Use the agy-jobs skill to resume the job. Run `setup --json` to diagnose local agy or container readiness.

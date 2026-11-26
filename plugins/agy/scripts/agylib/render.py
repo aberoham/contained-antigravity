@@ -119,27 +119,16 @@ def job_detail(job: dict[str, Any], stored: dict[str, Any] | None = None) -> str
 def next_steps(job: dict[str, Any], stored: dict[str, Any] | None = None) -> str:
     job_id = job.get("id")
     status = job.get("status")
-    if job.get("client") == "codex":
-        if status == "needs-approval":
-            queued = job.get("queued_commands") or []
-            if not queued:
-                return "Review incomplete. agy stopped to ask for approval but recorded no commands."
-            commands = "\n".join(f"- `{c}`" for c in queued)
-            return (
-                f"Review incomplete. agy requested approval for these commands, which Codex cannot grant:\n{commands}"
-            )
-        if status in ("queued", "running", "resuming"):
-            return f"Use the agy-review skill with job ID {job_id} for progress or cancellation."
-        return f"Review job ID: {job_id}"
+    command = "agy_codex.py " if job.get("client") == "codex" else "/agy:"
     if status in ("queued", "running", "resuming"):
-        return f"Next: /agy:status {job_id} for progress, /agy:cancel {job_id} to stop."
+        return f"Next: {command}status {job_id} for progress, {command}cancel {job_id} to stop."
     if status == "needs-approval":
         commands = "\n".join(f"- `{c}`" for c in job.get("queued_commands") or [])
         return (
-            "agy asked for these commands, which it was not allowed to run:\n"
-            f"{commands}\n"
-            f"Run the ones you judge safe from the working copy {job.get('worktree')}, save their output to a file, "
-            f"then `/agy:resume {job_id} <file>`. Or read the result as it is with /agy:result {job_id}."
+            f"agy requested approval.\n{commands or 'agy recorded no commands.'}\n"
+            f"Run approved commands in {job.get('worktree')}, save their output, "
+            f"then use `{command}resume {job_id} <file>`. "
+            f"If you skip the commands, use `{command}resume {job_id} --note <reason>`."
         )
     if "has_changes" in job:
         has_changes = bool(job["has_changes"])
@@ -149,10 +138,10 @@ def next_steps(job: dict[str, Any], stored: dict[str, Any] | None = None) -> str
         has_changes = True
     if status == "completed" and job.get("writable") and has_changes:
         return (
-            f"Next: /agy:result {job_id} to read the report and changes; "
-            f"/agy:apply {job_id} to apply them to your checkout."
+            f"Next: {command}result {job_id} to read the report and changes; "
+            f"{command}apply {job_id} to apply them to your checkout."
         )
-    return f"Next: /agy:result {job_id}"
+    return f"Next: {command}result {job_id}"
 
 
 def _review_text(review: dict[str, Any]) -> str:

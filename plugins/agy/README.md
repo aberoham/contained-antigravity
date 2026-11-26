@@ -1,6 +1,6 @@
 # Contained Antigravity Plugin
 
-Run isolated read-only and adversarial code reviews with Google's Antigravity CLI (`agy`) in Claude Code or local Codex. Claude Code also plans, rescues, and applies patches. Both clients share one local Python runner and your `agy` sign-in. `agy` sends reviewed code to Google.
+Run isolated read-only and adversarial code reviews with Google's Antigravity CLI (`agy`) in Claude Code or local Codex. Both clients can plan, delegate tasks, draft prose, apply patches and resume jobs. Both clients share one local Python runner and your `agy` sign-in. `agy` sends reviewed code to Google.
 
 ## Prerequisites
 
@@ -11,7 +11,7 @@ Run isolated read-only and adversarial code reviews with Google's Antigravity CL
 ## Install
 
 - **Claude Code:** Run `/plugin marketplace add aberoham/contained-antigravity` (or `/plugin marketplace add ./` locally), then `/plugin install agy@contained-antigravity` and `/agy:setup`. Update via `/plugin marketplace update contained-antigravity` and `/plugin`.
-- **Codex CLI:** Run `codex plugin marketplace add aberoham/contained-antigravity` then `codex plugin add agy@contained-antigravity` to install `agy:agy-review` without cloning (for local plugin development, run `codex plugin marketplace add .` from a checkout instead).
+- **Codex CLI:** Run `codex plugin marketplace add aberoham/contained-antigravity` then `codex plugin add agy@contained-antigravity` to install the agy skills without cloning (for local plugin development, run `codex plugin marketplace add .` from a checkout instead).
 
 From another marketplace that lists this plugin:
 
@@ -56,11 +56,12 @@ Codex reads the new catalog name when its marketplace refreshes and then cannot 
 
 ## Commands
 
-Use the slash commands below in Claude Code. In Codex, ask for a review in plain
-language, for example "use agy to review this branch against main". The
-`agy:agy-review` skill also checks setup and shows results, reports progress or
-cancels a review when you provide its full job ID. Planning, rescue, writing,
-apply and resume are available only in Claude Code.
+Use the slash commands below in Claude Code. In Codex, ask “Use agy to plan the retry change”, “Use agy to fix the failing
+test in its own working copy”, or “Use agy to rewrite this pull request
+description”. Writing runs read-only. To bring a rescue patch into your
+checkout, ask “Apply agy job <full-job-id>”. For a job waiting on approval,
+ask “Resume agy job <full-job-id> with these results” or supply a note
+explaining which commands to skip. Use the same full ID in a new thread.
 
 | Command | What it does |
 | --- | --- |
