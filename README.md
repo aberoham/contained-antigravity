@@ -1,6 +1,6 @@
 # Contained Antigravity
 
-Run isolated read-only code reviews and adversarial reviews with Google's Antigravity CLI (`agy`) from Claude Code or local Codex. Both clients support planning, rescue tasks, writing, patch application and approval resumes. Both clients share the same local Python runner and `agy` sign-in. `agy` sends reviewed code to Google.
+Run isolated read-only code reviews and adversarial reviews with Google's Antigravity CLI (`agy`) from Claude Code or local Codex. Both clients support planning, rescue tasks, writing, patch application and approval resumes. They share the same local Python runner and `agy` sign-in. `agy` sends reviewed code to Google.
 
 See [CHANGELOG.md](CHANGELOG.md) for notable changes and upgrade notes.
 
@@ -199,8 +199,8 @@ Sources:
 - **Container mode** (Docker or Colima): `agy` runs inside a Linux container with access only to the job's repository copy, mounted job data, plugin files, and `--read-dir` paths. The host home and Keychain stay unmounted. Each job gets a `0600` token copy and project settings in its private `HOME` until cleanup.
 - **Host mode** (no container): agy runs in a git worktree under a tool
   policy hook and, on macOS, a `sandbox-exec` write sandbox. Shell commands
-  outside a short read-only allow-list are queued for Claude, which runs
-  them under your normal Claude Code permission checks.
+  outside a short read-only allow-list are queued. Claude Code or Codex can run
+  them under its normal permission checks and resume the job with the output.
 - In both modes agy still reaches Google over the network, and the
   repository content goes to Google for the review.
 
