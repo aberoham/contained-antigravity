@@ -33,6 +33,24 @@ def test_codex_requires_full_job_ids(command, reference):
     assert error.value.code == 2
 
 
+def test_codex_note_cannot_consume_results_file():
+    parser = build_parser(codex=True)
+    job = "task-20261126-000000-abcd"
+    try:
+        args = parser.parse_args(["resume", job, "--note", "exit 0", "results.txt"])
+    except SystemExit as error:
+        # Older argparse requires the two positionals to be adjacent.
+        assert error.code == 2
+    else:
+        assert args.results_file == "results.txt" and args.note == ["exit 0"]
+
+
+def test_codex_task_rejects_implicit_or_partial_followup_ids():
+    for flags in (["--resume-last"], ["--resume-job", "task-2"]):
+        with pytest.raises(SystemExit):
+            build_parser(codex=True).parse_args(["task", *flags, "continue"])
+
+
 def test_codex_result_points_to_reviewed_commit_when_head_moves():
     commit = "1234abcd" * 5
     job = {
@@ -147,9 +165,10 @@ def test_codex_approval_resume_keeps_then_removes_review_worktree(companion, tmp
     job = json.loads(record.read_text())
     assert job["status"] == "needs-approval"
     assert Path(job["worktree"]).is_dir()
+    assert f"Run approved commands in {job['worktree']}" in out
     results = tmp_path / "empty result"
     results.touch()
-    out = codex(companion, "resume", job_id, str(results), "--note", "exit 0", scenario="task").stdout
+    out = codex(companion, "resume", "--note", "exit 0", job_id, str(results), scenario="task").stdout
     assert "Tests pass" in out
     assert not Path(job["worktree"]).exists()
 

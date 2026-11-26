@@ -1127,7 +1127,7 @@ def build_parser(*, codex: bool = False) -> argparse.ArgumentParser:
     add_run_options(resume)
     resume.add_argument("job", type=full_job_id if codex else str)
     resume.add_argument("results_file", nargs="?")
-    resume.add_argument("--note", nargs="*")
+    resume.add_argument("--note", nargs=1 if codex else "*")
     resume.set_defaults(func=cmd_resume)
 
     apply = sub.add_parser("apply")

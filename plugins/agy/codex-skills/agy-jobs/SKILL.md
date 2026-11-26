@@ -4,8 +4,9 @@ description: "Use when the user asks agy to plan work, rescue a task, draft or r
 ---
 
 From the user's Git checkout, invoke Python 3 with the absolute path to
-`../../scripts/agy_codex.py` relative to this skill directory. Pass requested
-model, isolation and read directories as individual arguments. When the sandbox
+`../../scripts/agy_codex.py` relative to this skill directory. Pass the requested
+`--model <model>` and `--isolation host|container` flags. Pass `--read-dir <path>`
+once for each extra directory the user wants agy to read. When the sandbox
 blocks the state directory, Docker socket or sign-in, request shell approval for
 the specific companion invocation.
 
@@ -19,9 +20,12 @@ the specific companion invocation.
 - To continue a task run `task --resume-job JOB_ID -- <request>` from the
   originating checkout. Pass `--read-only` for writing and other read-only
   rounds. A task started read-only requires that flag on every follow-up.
-- Wait for completion unless the user requests background execution. Return
+- Wait for completion unless the user requests background execution with `--background`. Return
   the full ID for background jobs. Use `status JOB_ID`, `result JOB_ID
   --wait-seconds 120` (repeat while running), or `cancel JOB_ID` as requested.
+
+Verify quoted code, paths and line numbers before relaying plans or rescue
+results. Check edits in the writable job’s working copy.
 
 ## Approval and resume
 

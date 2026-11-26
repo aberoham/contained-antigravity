@@ -187,7 +187,7 @@ def result_text(job: dict[str, Any], stored: dict[str, Any] | None) -> str:
             # The user's checkout holds some other commit, so a path there is not the reviewed file.
             text = re.sub(r"(?<![\w.:/-])" + re.escape(root.rstrip("/") + "/"), "", text)
             text += f"\nPaths and lines are as of {head}; read a file with `git show {head}:<path>`."
-    return text
+    return f"{text}\n\n{next_steps(job, stored)}"
 
 
 def _relative_reference(match: re.Match[str], root: str) -> str:
@@ -204,12 +204,12 @@ def _result_text(job: dict[str, Any], stored: dict[str, Any] | None) -> str:
     head = f"Job {job.get('id')} ({job.get('kind')}, {job.get('status')}, model {model_label(job.get('model'))})"
     if not stored:
         if not job.get("error"):
-            return f"{head}\nNo result yet.\n{next_steps(job)}"
+            return f"{head}\nNo result yet."
         # The worker failed before agy's reply was stored.
         parts = [head, "", f"Error: {job['error']}"]
         if job.get("failure"):
             parts.append(f"Failure: {job['failure']} (exit {failure.exit_code(job['failure'])})")
-        return "\n".join([*parts, next_steps(job)])
+        return "\n".join(parts)
     parts = [head, ""]
     if job.get("error"):
         parts += [f"Error: {job['error']}", ""]
@@ -232,5 +232,4 @@ def _result_text(job: dict[str, Any], stored: dict[str, Any] | None) -> str:
         parts += ["", "Files changed in the job's working copy:", stored["changed_files"]]
     elif job.get("writable") and not job.get("error"):
         parts += ["", "agy changed no files."]
-    parts += ["", next_steps(job, stored)]
     return "\n".join(parts)
