@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from typing import Any
@@ -9,6 +10,8 @@ from urllib.parse import unquote
 
 from . import failure
 from .state import now_iso, parse_iso
+
+WEB_OUTCOMES = ("ran", "failed", "unfinished")
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 CANNOT_REVIEW = "cannot-review"
@@ -187,7 +190,9 @@ def result_text(job: dict[str, Any], stored: dict[str, Any] | None) -> str:
             # The user's checkout holds some other commit, so a path there is not the reviewed file.
             text = re.sub(r"(?<![\w.:/-])" + re.escape(root.rstrip("/") + "/"), "", text)
             text += f"\nPaths and lines are as of {head}; read a file with `git show {head}:<path>`."
-    return f"{text}\n\n{next_steps(job, stored)}"
+    # Added after the path rewriting, which would otherwise decode and alter a query.
+    web = "\n".join(_web_lines(stored or {}))
+    return f"{text}{web}\n\n{next_steps(job, stored)}"
 
 
 def _relative_reference(match: re.Match[str], root: str) -> str:
@@ -198,6 +203,34 @@ def _relative_reference(match: re.Match[str], root: str) -> str:
         return match.group(0)
     line = match.group(2)
     return path[len(prefix) :] + (f":{line}" if line else "")
+
+
+def _web_lines(stored: dict[str, Any]) -> list[str]:
+    """The round's web searches, as agy's event stream reported them.
+
+    Each query is quoted as ASCII JSON on one line, so text agy chose cannot
+    pose as a line of the report. agy's events carry the queries, not the
+    results, so the URLs agy cites come only from its reply. A search that
+    started but never reported an outcome, because the turn was stopped, is
+    listed as unfinished. Earlier rounds of the same conversation are not
+    covered.
+    """
+    searches = stored.get("web_searches") or []
+    state = "on" if stored.get("web") else "off"
+    if not searches:
+        return ["", "Web search was on, but agy ran no searches in this round."] if state == "on" else []
+    counts = {outcome: sum(1 for s in searches if s.get("outcome") == outcome) for outcome in WEB_OUTCOMES}
+    summary = ", ".join(f"{counts[outcome]} {outcome}" for outcome in WEB_OUTCOMES)
+    lines = ["", f"Web searches in this round (web search {state} for this job; {summary}):"]
+    for search in searches:
+        query = json.dumps(str(search.get("query", "")))
+        line = f"- {search.get('outcome')}: {query}"
+        if search.get("error"):
+            line += " (" + json.dumps(str(search["error"]))[1:-1] + ")"
+        lines.append(line)
+    if not counts["ran"]:
+        lines.append("No search in this round was reported as successful.")
+    return lines
 
 
 def _result_text(job: dict[str, Any], stored: dict[str, Any] | None) -> str:

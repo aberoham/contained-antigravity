@@ -14,3 +14,5 @@ or -medium, recorded on 24 October 2026. Local paths are replaced with
 | `headless-permission-auto-deny.ndjson` | A command outside `permissions.allow` is auto-denied; `result.denied_actions` is set. Its stderr is in the `.stderr.txt` file. |
 | `hook-denies-run-command.ndjson` | A workspace PreToolUse hook denies `run_command`; `write_file` was not in the deny list and succeeded. |
 | `hook-input-payloads.ndjson` | The JSON the PreToolUse hook received on stdin for those two calls. |
+| `search-web-allowed-container.ndjson` | agy 1.5 in the plugin's container image, plan mode, `--dangerously-skip-permissions`, recorded on 27 November 2026. A PreToolUse hook in the job home's `hooks.json` allows `search_web`, which succeeds; `read_url_content` is listed in `init` but agy reports it is not available. |
+| `search-web-hook-denied-container.ndjson` | The same run with the hook denying `search_web`: agy honours the denial under `--dangerously-skip-permissions`. |

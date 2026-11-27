@@ -15,6 +15,8 @@ that path to an absolute path before invoking it. Keep the checkout as cwd.
   request approval for the specific companion invocation through the usual
   shell approval flow. Preserve any isolation mode the user requested.
 - Pass `--read-dir <path>` once for each extra directory the user asks agy to read.
+- Pass `--web` only when the user asks agy to search the web or check public
+  documentation. The result lists each search query; agy cannot fetch pages.
 - Wait for completion unless the user asks for background execution. For a
   background review, pass `--background` and return the full job ID. For a
   running foreground review, use `result JOB_ID --wait-seconds 120` until

@@ -1,7 +1,7 @@
 ---
 # Adapted from openai/codex-plugin-cc (Apache-2.0) and modified for agy. See NOTICE.
 description: Run an agy (Gemini 4) code review of local git changes, read-only
-argument-hint: '[--wait|--background] [--base <ref>] [--head <ref>] [--scope auto|working-tree|branch] [--isolation container|host] [--read-dir <directory>] [--model <level|family|family-level|model ID>] [--instructions-file <path>] [instructions ...]'
+argument-hint: '[--wait|--background] [--base <ref>] [--head <ref>] [--scope auto|working-tree|branch] [--isolation container|host] [--read-dir <directory>] [--web] [--model <level|family|family-level|model ID>] [--instructions-file <path>] [instructions ...]'
 disable-model-invocation: true
 allowed-tools: Read, Glob, Grep, Bash(python3:*), Bash(git:*), AskUserQuestion
 ---

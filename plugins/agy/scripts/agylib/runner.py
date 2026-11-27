@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Callable, NamedTuple
 
 from . import agybin, container, failure, gitctx, sandbox
-from .policy import WRITE_TOOLS
+from .policy import WEB_SEARCH_TOOL, WRITE_TOOLS
 from .state import JobStore, now_iso, read_json, write_json
 
 DEFAULT_STALL_SECONDS = 630  # agy's own idle timeout is 10 minutes since 1.5.10
@@ -335,6 +335,10 @@ class JobRunner:
         self.progress: dict[str, Any] = {"steps": 0, "tools": 0, "last_tool": None, "text": ""}
         self.plan_paths: list[str] = []
         self.denied_commands: list[str] = []
+        # Read from agy's own event stream, which the container cannot forge,
+        # rather than from the hook log, which a container job may write.
+        self.web_searches: list[dict[str, str]] = []
+        self._searches_by_step: dict[Any, dict[str, str]] = {}
         self.step_usage: dict[str, int] = {}
         self.stderr_path = self.dir / "agy.stderr.txt"
         self.stderr_start = 0
@@ -353,6 +357,21 @@ class JobRunner:
         snapshot = dict(self.progress)
         snapshot["text"] = snapshot["text"][-400:]
         self.store.update(self.job_id, lambda r: r.update({"progress": snapshot}))
+
+    def _record_search(self, step: dict[str, Any], params: dict[str, Any], info: dict[str, Any]) -> None:
+        """Note a search when it starts, as unfinished, and its outcome when agy reports one."""
+        key = (step.get("conversation_id"), step.get("step_index"))
+        search = self._searches_by_step.get(key)
+        if search is None or search["outcome"] != "unfinished":
+            search = {"query": str(params.get("query") or params.get("Query") or ""), "outcome": "unfinished"}
+            self._searches_by_step[key] = search
+            self.web_searches.append(search)
+        state = step.get("state")
+        if state == "DONE":
+            search["outcome"] = "ran"
+        elif state == "ERROR":
+            search["outcome"] = "failed"
+            search["error"] = str((info.get("error") or {}).get("message", ""))[:300]
 
     def on_event(self, event: dict[str, Any]) -> None:
         kind = event.get("event")
@@ -384,6 +403,8 @@ class JobRunner:
                     # Only a file under the brain directory is read back on the host.
                     if os.path.normpath(path).startswith(self._plan_root()):
                         self.plan_paths.append(path)
+            if name == WEB_SEARCH_TOOL:
+                self._record_search(step, params, info)
             if step.get("state") == "ERROR":
                 message = str((info.get("error") or {}).get("message", ""))
                 match = PERMISSION_DENIED.search(message)
@@ -492,7 +513,8 @@ class JobRunner:
             # could still write into the working copy this round uses.
             _remove_container(leftover)
         if self.job.get("isolation") == "container":
-            container.seed_home(self.dir)  # a fresh home for this round, from the sign-in
+            # A fresh home for this round, from the sign-in, with the policy hook.
+            container.seed_home(self.dir, hooks=container.hook_settings(Path(self.job["plugin_root"]), self.dir))
         # stderr is appended to across rounds; earlier rounds' errors are not this round's.
         self.stderr_start = _file_size(self.stderr_path)
         # Each run writes its own log; only this round's are kept.
@@ -572,7 +594,10 @@ class JobRunner:
             "usage": result.get("usage"),
             "denied_actions": result.get("denied_actions"),
             "queued_commands": commands,
+            "web": bool(self.job.get("web")),
+            "web_searches": self.web_searches,
         }
+        round_record["web_searches"] = len(self.web_searches)
         error = None
         failure_class = None
         stderr_tail = _tail(self.stderr_path, self.stderr_start)

@@ -16,6 +16,7 @@ agy has presented invented text as a verbatim copy of a real file, with wrong na
 - Check names agy gives for files, functions, settings, projects and commands.
 - In your reply, say which claims you checked and which you could not. Mark a claim that failed the check as wrong and show what the file actually says. Do not silently fix it.
 - For plans, check any step that tells the reader to copy something "exactly" or "verbatim" against the source.
+- A claim agy says it took from the web rests only on the queries under `Web searches`. agy's events do not carry the search results, so the plugin cannot confirm a URL agy cites; open the URL before relaying the claim, or label it unverified. When the result says web search was off, or that no search ran or succeeded, treat agy's documentation claims as inferred.
 
 ## Presentation
 
@@ -41,3 +42,4 @@ Only a host-mode job queues commands; a container job runs its own. A job in `ne
 - A completed review can still contain invented line numbers. The verification step applies every time.
 - Paths in review and plan results already point at the user's repository. Paths in task results point at the job's working copy, because those files differ until applied.
 - agy's reply may say it "ran" a command that was queued instead. Trust the job's queued-command list over the prose.
+- agy's reply may also say it searched the web when no search ran. Trust the `Web searches` lines over the prose.

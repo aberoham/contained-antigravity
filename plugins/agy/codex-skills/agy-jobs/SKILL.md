@@ -6,7 +6,8 @@ description: "Use when the user asks agy to plan work, rescue a task, draft or r
 From the user's Git checkout, invoke Python 3 with the absolute path to
 `../../scripts/agy_codex.py` relative to this skill directory. Pass the requested
 `--model <model>` and `--isolation host|container` flags. Pass `--read-dir <path>`
-once for each extra directory the user wants agy to read. When the sandbox
+once for each extra directory the user wants agy to read, and `--web` only when
+the user asks agy to search the web. When the sandbox
 blocks the state directory, Docker socket or sign-in, request shell approval for
 the specific companion invocation.
 
