@@ -1,6 +1,6 @@
 ---
 description: Ask agy (Gemini 4) to write an implementation plan without changing anything
-argument-hint: '[--wait|--background] [--isolation container|host] [--read-dir <directory>] [--model <level|family|family-level|model ID>] [--request-file <path>] <what the plan is for>'
+argument-hint: '[--wait|--background] [--isolation container|host] [--read-dir <directory>] [--web] [--model <level|family|family-level|model ID>] [--request-file <path>] <what the plan is for>'
 disable-model-invocation: true
 allowed-tools: Read, Glob, Grep, Bash(python3:*), AskUserQuestion
 ---

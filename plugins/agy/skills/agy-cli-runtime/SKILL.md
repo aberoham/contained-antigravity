@@ -11,8 +11,8 @@ Use only inside the `agy:agy-rescue` subagent.
 
 Helpers, all through `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agy_companion.py"`:
 
-- `task [--background] [--isolation container|host] [--model <level|family|family-level|model ID>] [--read-only] [--read-dir <directory>] [--resume-last] [--request-file <path>] ["<request>"]`
-- `review [--base <ref>] [--head <ref>] [--scope auto|working-tree|branch] [--isolation container|host] [--read-dir <directory>] [--model <level|family|family-level|model ID>] [--instructions-file <path>] ["<instructions>"]`
+- `task [--background] [--isolation container|host] [--model <level|family|family-level|model ID>] [--read-only] [--read-dir <directory>] [--web] [--resume-last] [--request-file <path>] ["<request>"]`
+- `review [--base <ref>] [--head <ref>] [--scope auto|working-tree|branch] [--isolation container|host] [--read-dir <directory>] [--web] [--model <level|family|family-level|model ID>] [--instructions-file <path>] ["<instructions>"]`
 - `adversarial-review` with the same flags and instructions as `review`
 
 `--caller-model "<Claude model ID>"` is accepted by all three; pass it on, quoted, when the request carries it. IDs such as `claude-opus-5-5[1m]` contain brackets that zsh would otherwise expand. Never choose `--model xhigh` on your own (`xhigh` fails on Neon and is absent on Hydrogen on Gemini Enterprise).
@@ -34,6 +34,7 @@ Rules:
 - A `task` request must therefore carry any diff, or any text from a file outside the repository, inline (via `--request-file`), or name the file's directory with `--read-dir` (a leaf directory under `$HOME`, never `/tmp` under Colima and never overlapping `~/.gemini` or plugin state). When a request names an unreachable ref or outside path, the companion prints a `Note:` line before the result.
 - When agy lacks the material, a review's result has a line that starts with `Cannot review:` where the verdict would be, and no `Verdict:` line. Treat that as no review, never as an approval.
 - A task job without `--read-only` edits its own working copy under the plugin's state directory: a self-contained copy in container mode, a detached git worktree in host mode. The user's checkout changes only when they run `/agy:apply`. Add `--read-only` whenever the request asks only for diagnosis, explanation, comparison or prose drafting rather than repository edits.
+- Web search is off unless the job is started with `--web`; a `--resume-last` round with `--web` turns it on for the rest of the job. With it, agy may run its `search_web` tool, and the result lists every query. agy cannot fetch a page (`read_url_content` is not offered in print mode), and browser, Model Context Protocol (MCP) and subagent tools stay blocked. Pass `--web` only when the caller asked agy to check public documentation or the web.
 - `--resume-last` continues the newest finished task this Claude session started in this repository, in the same working copy and agy conversation (it keeps the job's isolation mode and adds any new `--read-dir` directories). With `--read-only` that round cannot edit, while any edits from earlier writable rounds stay applicable. A job that started with `--read-only` cannot become writable later: start a fresh task without `--read-only` when the caller wants edits.
 
 ## Gotchas

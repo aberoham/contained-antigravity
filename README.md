@@ -124,6 +124,11 @@ your request:
 - `--read-dir <path>` lets agy read one more directory, such as a sibling
   repository. Repeat it for several. What agy reads there goes to Google too.
   In Codex, name each directory you want agy to read in your request.
+- `--web` lets agy run its `search_web` tool, for example to check a public
+  API's documentation. Searches are off without it. The result lists each
+  query. agy cannot fetch pages, so check any URL it cites. Queries go to
+  Google, and a prompt injection in the repository could put repository
+  content in one.
 - Reviews also take instructions on what to check: text after the flags, or
   `--instructions-file <path>`.
 
@@ -201,6 +206,10 @@ Sources:
   policy hook and, on macOS, a `sandbox-exec` write sandbox. Shell commands
   outside a short read-only allow-list are queued. Claude Code or Codex can run
   them under its normal permission checks and resume the job with the output.
+- In both modes a hook refuses agy's built-in web search, browser, Model
+  Context Protocol (MCP) and subagent tools, except web search in a job
+  started with `--web`. This controls agy's tools, not the network: in a
+  container agy may still run `curl` to reach any site.
 - In both modes agy still reaches Google over the network, and the
   repository content goes to Google for the review.
 

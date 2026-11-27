@@ -127,10 +127,14 @@ def test_review_runs_in_a_container_with_only_the_job_paths_mounted(contained, r
     volumes = [o[len("--volume=") :] for o in options if o.startswith("--volume=")]
     # Exactly these, and nothing else: the job record, the result and the
     # sign-in home stay outside.
+    job_dir = job_mount.parent
+    home_hooks = job_mount / "home" / ".gemini" / "antigravity-cli" / "hooks.json"
     assert volumes == [
         f"{worktree}:{worktree}:ro",  # a review never edits the copy
         f"{job_mount}:{job_mount}",
         f"{job['plugin_root']}:{job['plugin_root']}:ro",
+        f"{job_dir / 'policy.json'}:{job_dir / 'policy.json'}:ro",  # agy cannot change its policy
+        f"{job_dir / 'container-hooks.json'}:{home_hooks}:ro",  # nor remove the hook
     ]
     assert not any(str(repo) in v or str(signin) in v for v in volumes)
     log_file = Path(run[run.index("--log-file") + 1])
@@ -334,7 +338,8 @@ def test_wrap_puts_every_mount_at_its_host_path(tmp_path, monkeypatch):
     (tmp_path / "docker").chmod(0o755)
     (tmp_path / "container-home" / ".gemini" / "antigravity-cli").mkdir(parents=True)
     (tmp_path / "job").mkdir()
-    container.seed_home(tmp_path / "job")
+    (tmp_path / "job" / "policy.json").write_text("{}")
+    container.seed_home(tmp_path / "job", hooks=container.hook_settings(tmp_path / "plugin", tmp_path / "job"))
     mounts = container.Mounts(tmp_path / "wt", tmp_path / "job", tmp_path / "plugin", [tmp_path / "docs"], True)
     command = container.wrap(["agy", "--model", "x", "--print="], name="agy-job-1", mounts=mounts)
     assert command[0] == str(tmp_path / "docker")

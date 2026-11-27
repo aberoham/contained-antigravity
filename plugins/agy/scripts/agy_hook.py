@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 """agy PreToolUse hook for one plugin job.
 
-Usage (written into the job's .agents/hooks.json): agy_hook.py <job-dir>
+Usage: agy_hook.py <job-dir> [<log-dir>]
 
-Reads agy's hook payload on stdin and prints a decision. Any error denies the
-call, so a broken hook cannot widen what agy may do.
+A host job writes this into its working copy's .agents/hooks.json; a
+container job mounts it, read-only, as the hooks.json in the job's home.
+
+Reads agy's hook payload on stdin, decides it with <job-dir>/policy.json and
+prints the decision. Each decision is logged in <log-dir>, which defaults to
+<job-dir>; a container job passes the one job subdirectory it may write,
+because it sees only policy.json from the job directory. Any error denies
+the call, so a broken hook cannot widen what agy may do.
 """
 
 from __future__ import annotations
@@ -27,12 +33,13 @@ def append_line(path: Path, record: dict) -> None:
 def main() -> int:
     try:
         job_dir = Path(sys.argv[1])
+        log_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else job_dir
         payload = json.load(sys.stdin)
         policy = json.loads((job_dir / "policy.json").read_text(encoding="utf-8"))
         result = decide(payload, policy)
         call = payload.get("toolCall") or {}
         append_line(
-            job_dir / "hook.ndjson",
+            log_dir / "hook.ndjson",
             {
                 "t": time.time(),
                 "tool": call.get("name"),
@@ -42,7 +49,7 @@ def main() -> int:
         )
         if result.queued_command is not None:
             append_line(
-                job_dir / "queued.ndjson",
+                log_dir / "queued.ndjson",
                 {
                     "t": time.time(),
                     "command": result.queued_command,

@@ -77,8 +77,8 @@ explaining which commands to skip. Use the same full ID in a new thread.
 | `/agy:cancel [job]` | Stops a running job. |
 | `/agy:setup` | Checks that agy is installed and signed in. |
 
-Most commands accept `--model`, `--background` and `--isolation
-container|host`. `--model` takes a thinking level (`low`, `medium`, `high`,
+Most commands accept `--model`, `--background`, `--isolation
+container|host`, `--read-dir <path>` and `--web` (see "Web search" below). `--model` takes a thinking level (`low`, `medium`, `high`,
 `xhigh`), a family (`neon`), both (`neon-high`), or a full ID from `agy
 models`. Without it, the Gemini model follows the calling Claude model:
 Haiku and Sonnet get `gemini-4-hydrogen-high`, Opus and Fable
@@ -109,7 +109,10 @@ the patch format so your diff and colour settings cannot break it.
 agy runs in a Linux container (`containers/Dockerfile`) that can see three
 things, each mounted at its host path: the working copy, one subdirectory of
 the job's state directory (agy's log, the exported patch and the job's own
-home) and the plugin's own files (read-only). Nothing else from your machine
+home) and the plugin's own files (read-only). Two files from the job's
+state directory are also mounted read-only: the job's tool policy, and the
+`hooks.json` in the job's home that runs the plugin's hook on every tool
+call (see the tool hook below). Nothing else from your machine
 is mounted, so there is no `~/.aws`, `~/.ssh` or keychain to read, and the
 job record, the baseline snapshot and the result, which the host trusts, are
 out of the container's reach. The job's home belongs to that job alone: it
@@ -141,6 +144,13 @@ it at all.
   is the exception: its copy is built from that ref's tree with the `.agents`
   directory removed, because the ref is often someone else's pull request and
   its hooks would run beside the job's copy of your sign-in.
+- A `PreToolUse` hook in the job's home refuses agy's built-in web search,
+  browser, Model Context Protocol (MCP) and subagent tools, and allows web
+  search only in a job started with `--web` (see "Web search" below). agy
+  honours the hook under `--dangerously-skip-permissions`, and the hook and
+  its policy are read-only mounts, so agy cannot change or remove them. This
+  controls agy's tools, not the network: the image has `curl`, and agy may
+  run any command, so a container job can still reach any site.
 - agy's own terminal sandbox is off inside the container (Docker blocks the
   user namespaces it needs); the container is the boundary.
 - Jobs run as your user id, and `/agy:setup` refuses an image built for a
@@ -193,7 +203,9 @@ Without a container, each job gets three layers:
    - Reviews and plans may write only agy's own plan artifact. Tasks may write
      only inside the working copy, and never its `.git` or `.agents`
      directory, under any spelling the filesystem maps to them.
-   - Web, browser, MCP and subagent tools are blocked in every job.
+   - Web search, browser, MCP and subagent tools are blocked, except web
+     search in a job started with `--web`. Because shell commands are
+     policy-checked, agy cannot reach the web through a shell command.
    - A symlinked `.agents` directory stops the job before it starts, so the
      plugin never removes or writes through a link into your checkout.
 3. **A write sandbox on macOS.** agy runs under `sandbox-exec`. It may write
@@ -203,6 +215,42 @@ Without a container, each job gets three layers:
    off. On Linux there is no equivalent layer yet.
 
 In host mode the plugin never passes `--dangerously-skip-permissions`.
+
+### Web search (`--web`)
+
+Web search is off by default in both modes. `review`, `adversarial-review`,
+`plan` and `task` (and so `/agy:rescue`) accept `--web`, which lets agy run
+its `search_web` tool, for example to check a public API's documentation. A
+`task --resume-last --web` round, or an approval resume with `--web`, turns
+it on for the rest of that job; without the flag a later round keeps the
+job's setting. No agy `permissions.allow` entry is
+needed: on 27 November 2026 agy 1.5 ran `search_web` in print mode whenever
+the hook allowed it, on the host and in the container.
+
+- **What stays blocked.** Browser, MCP and subagent tools, and
+  `read_url_content`. agy 1.5 lists `read_url_content` among its tools but
+  tells the model it is not available in print mode, so agy cannot fetch a
+  page and there is no domain allow-list yet.
+- **What the result shows.** Every search agy started in the round, as a
+  quoted query marked `ran`, `failed` (with the error) or `unfinished` (the
+  turn stopped first), read from agy's own event stream. The result covers
+  the latest round only: a follow-up replaces it, and the job's round table
+  keeps only a count. Earlier rounds' searches remain in the job's
+  `events.ndjson`.
+  agy's events and log carry the query but not the results, so the plugin
+  cannot confirm a URL agy cites; check it before you rely on it. Many of
+  agy's citations are `vertexaisearch.cloud.google.com/grounding-api-redirect/`
+  links, whose target agy did not see. When the
+  flag was on but no search ran or succeeded in the round, the result says
+  so. When the flag was off, the result still lists what agy tried.
+- **The trade-off.** A search query is an outbound channel to Google's
+  search service. A prompt injection in the reviewed repository could put
+  data from the repository, from any `--read-dir` directory or, in a
+  container, from the job's copy of the sign-in into a query. The prompt
+  tells agy never to put repository content, credentials or internal names
+  in a query, but that is an instruction, not a control. Without `--web`, a
+  host job has no route to the web except its calls to Gemini. A container
+  job has one either way: the tool hook does not stop `curl`.
 
 ## Commands agy wants to run (host mode)
 
@@ -321,6 +369,8 @@ drives `/agy:setup` and `/agy:review` through `claude --plugin-dir`.
   `.agy-review.diff` in the copy. A task gets only its request text, so the
   companion prints a `Note:` when the request names `origin/...`, `refs/...`,
   `pr/<n>` or a path outside the repository.
+- **A web claim needs its query.** agy may say it searched when no search
+  ran. Trust the `Web searches` lines in the result over agy's prose.
 - **`Cannot review:` means no review.** When the diff or a file it needs is
   missing, agy is told to return the verdict `cannot-review`, which the
   result shows as `Cannot review: <what is missing>` with no verdict line.

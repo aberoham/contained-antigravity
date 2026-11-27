@@ -327,6 +327,7 @@ def start_job(
         else None,
         "next_round_kind": "initial",
         "read_dirs": _resolve_read_dirs(args.read_dir, isolation == "container"),
+        "web": bool(getattr(args, "web", False)),
         "generation": 1,
     }
     head_commit = ((extra or {}).get("target") or {}).get("head_commit")
@@ -352,12 +353,10 @@ def start_job(
     if getattr(args, "codex", False):
         record["client"] = "codex"
     record.update(extra or {})
-    if record["read_dirs"]:
-        message += "\n\nYou may also read files in: " + ", ".join(record["read_dirs"]) + "\n"
+    message += round_notes(record)
     store.create(record)
     write_json(job_dir / "baseline-tree.json", tree)
-    if isolation == "host":
-        write_json(job_dir / "policy.json", policy_for(record))
+    write_json(job_dir / "policy.json", policy_for(record))
     record_session_job(record["session_id"], root, job_id)
     (job_dir / "next-message.md").write_text(message, encoding="utf-8")
     spawn_worker(store, job_id)
@@ -397,10 +396,30 @@ def hook_command(job_dir: Path) -> str:
 def policy_for(record: dict[str, Any]) -> dict[str, Any]:
     return {
         "kind": record["kind"],
+        "isolation": record.get("isolation") or "host",
         "writable": bool(record["writable"]) and not record.get("read_only_round"),
         "worktree": record["worktree"],
         "read_dirs": record.get("read_dirs") or [],
+        "web": bool(record.get("web")),
     }
+
+
+WEB_NOTE = (
+    "\n\nYou may use the search_web tool to check public documentation. Search queries go to Google, so "
+    "never put repository contents, file contents, credentials or internal names in a query. "
+    "read_url_content is not available. For each claim that rests on a search, name the query and the URL "
+    "you rely on; label anything you could not check as inferred.\n"
+)
+
+
+def round_notes(record: dict[str, Any]) -> str:
+    """What the prompt adds for the job's settings: extra read directories and web search."""
+    notes = ""
+    if record.get("read_dirs"):
+        notes += "\n\nYou may also read files in: " + ", ".join(record["read_dirs"]) + "\n"
+    if record.get("web"):
+        notes += WEB_NOTE
+    return notes
 
 
 def spawn_worker(store: JobStore, job_id: str) -> None:
@@ -685,12 +704,18 @@ def continue_job(
             )
         if read_only is not None:
             record["read_only_round"] = read_only
+        if getattr(args, "web", False):
+            record["web"] = True
+        # The worker runs from this installation, so the container mounts it
+        # too: an older installation's hook would not know this policy.
+        record["plugin_root"] = str(PLUGIN_ROOT)
+        if record.get("json_schema"):
+            record["json_schema"] = str(PLUGIN_ROOT / "schemas" / "review-output.schema.json")
         record["generation"] = int(record.get("generation") or 1) + 1
         record.update({"pid": None, "agy_pid": None})
 
     record = store.update(job_id, mutate)
-    if record.get("read_dirs"):
-        message += "\n\nYou may also read files in: " + ", ".join(record["read_dirs"]) + "\n"
+    message += round_notes(record)
     job_dir = store.job_dir(job_id)
     if record.get("isolation") != "container":
         try:
@@ -713,7 +738,7 @@ def continue_job(
                 ),
             )
             raise
-        write_json(job_dir / "policy.json", policy_for(record))
+    write_json(job_dir / "policy.json", policy_for(record))
     (job_dir / "next-message.md").write_text(message, encoding="utf-8")
     spawn_worker(store, job_id)
     return wait_or_report(store, job_id, args)
@@ -1067,6 +1092,11 @@ def add_run_options(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--read-dir", action="append", help="another directory agy may read (repeatable); reads are otherwise confined"
+    )
+    parser.add_argument(
+        "--web",
+        action="store_true",
+        help="let agy use its search_web tool; queries go to Google's search and are listed in the result",
     )
 
 

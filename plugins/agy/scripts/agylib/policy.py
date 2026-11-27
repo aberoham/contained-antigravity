@@ -7,6 +7,11 @@ settings would refuse, so "allow" here means "do not object".
 
 Commands this policy will not pass are queued for Claude, which runs them
 with its own Bash tool and resumes the agy conversation with the output.
+
+A container job gets a shorter policy. The container is the boundary for
+files and commands, so the hook there refuses only agy's built-in web,
+browser, Model Context Protocol (MCP) and subagent tools. That is not
+network containment: agy may still run curl in a container.
 """
 
 from __future__ import annotations
@@ -35,6 +40,17 @@ WRITE_TOOLS = frozenset(
     }
 )
 COMMAND_TOOLS = frozenset({"run_command"})
+# Sends a query to Google's search and returns results. Allowed only in a job
+# started with --web. agy 1.5 lists read_url_content among its tools but does
+# not offer it to the model in print mode, so it stays refused until it can be
+# tested.
+WEB_SEARCH_TOOL = "search_web"
+# Refused in container jobs, as everything outside the lists above is refused
+# in host jobs. Any tool whose name mentions a browser or a subagent counts.
+CONTAINER_BLOCKED_TOOLS = frozenset(
+    {"read_url_content", "call_mcp_tool", "list_resources", "read_resource", "search_marketplace"}
+)
+CONTAINER_BLOCKED_WORDS = ("browser", "subagent")
 PATH_KEYS = ("Path", "TargetFile", "AbsolutePath", "FilePath", "File")
 READ_PATH_KEYS = ("Path", "AbsolutePath", "FilePath", "File", "DirectoryPath", "SearchDirectory", "SearchPath")
 
@@ -446,10 +462,31 @@ def command_paths_inside(command: str, cwd: str, roots: list[str]) -> bool:
     return parsed is not None and _options_allowed(parsed) and _operands_inside(parsed, cwd, roots)
 
 
+WEB_OFF_REASON = (
+    "Web search is off for this job. Say in your reply which facts you could not check; "
+    "the caller can pass --web to allow it."
+)
+
+
 def decide(payload: dict[str, Any], policy: dict[str, Any]) -> Decision:
     call = payload.get("toolCall") or {}
     name = str(call.get("name", ""))
-    args = call.get("args") or {}
+    if name == WEB_SEARCH_TOOL:
+        if policy.get("web"):
+            return Decision("allow", "web search is on for this job")
+        return Decision("deny", WEB_OFF_REASON)
+    if policy.get("isolation") == "container":
+        return _decide_in_container(name)
+    return _decide_on_host(name, call.get("args") or {}, payload, policy)
+
+
+def _decide_in_container(name: str) -> Decision:
+    if name in CONTAINER_BLOCKED_TOOLS or any(word in name for word in CONTAINER_BLOCKED_WORDS):
+        return Decision("deny", f"The {name} tool is not available in agy plugin jobs.")
+    return Decision("allow", "the container is the boundary for this tool")
+
+
+def _decide_on_host(name: str, args: dict[str, Any], payload: dict[str, Any], policy: dict[str, Any]) -> Decision:
     worktree = str(policy.get("worktree", ""))
     writable = bool(policy.get("writable"))
     brain = payload.get("artifactDirectoryPath")

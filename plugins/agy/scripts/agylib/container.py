@@ -18,8 +18,12 @@ next, whatever repository it was reviewing.
 
 Inside the container agy runs with --dangerously-skip-permissions: it may
 run any command and edit any file it can reach, and what it can reach is the
-working copy. The patch is computed inside the container as well, so the
-host never runs git over files agy has written.
+working copy. agy still runs PreToolUse hooks there. The job's home holds
+one, mounted read-only with the job's policy file, which refuses agy's
+built-in web, browser, MCP and subagent tools unless the job allows web
+search. It does not stop a command such as curl from reaching the network.
+The patch is computed inside the container as well, so the host never runs
+git over files agy has written.
 """
 
 from __future__ import annotations
@@ -31,6 +35,7 @@ import os
 import pwd
 import re
 import secrets
+import shlex
 import shutil
 import stat
 import subprocess
@@ -86,6 +91,9 @@ KEYCHAIN_SERVICE = "gemini"
 KEYCHAIN_ACCOUNT = "antigravity"
 KEYRING_PREFIX = "go-keyring-base64:"
 DEFAULT_SETTINGS = {"enableTerminalSandbox": False}
+HOOKS_FILE = "hooks.json"  # agy reads PreToolUse hooks from this file in its home
+JOB_HOOKS = "container-hooks.json"  # the trusted copy, in the job directory, mounted over the home's
+POLICY_FILE = "policy.json"
 
 
 def signin_home() -> Path:
@@ -258,7 +266,23 @@ def job_home(job_dir: Path) -> Path:
     return job_mount(job_dir) / "home"
 
 
-def seed_home(job_dir: Path) -> Path:
+def hook_settings(plugin_root: Path, job_dir: Path) -> bytes:
+    """The hooks.json that runs the plugin's policy hook on every tool call in the container.
+
+    The hook reads the job's policy file, which is mounted read-only at its
+    host path, and logs into the job's mounted subdirectory.
+    """
+    words = ["python3", "-I", str(plugin_root / "scripts" / "agy_hook.py"), str(job_dir), str(job_mount(job_dir))]
+    command = " ".join(shlex.quote(word) for word in words)
+    hooks = {
+        "agy-plugin-policy": {
+            "PreToolUse": [{"matcher": ".*", "hooks": [{"type": "command", "command": command, "timeout": 30}]}]
+        }
+    }
+    return (json.dumps(hooks, indent=2) + "\n").encode()
+
+
+def seed_home(job_dir: Path, hooks: bytes | None = None) -> Path:
     """Give the job its own home with a copy of the newer sign-in and settings, and return it.
 
     The home belongs to one job: a new job starts empty, so nothing a job on
@@ -269,7 +293,13 @@ def seed_home(job_dir: Path) -> Path:
     setting agy changed does not carry over. The refresh token in the copy
     keeps working: refreshing does not rotate it, so copies refreshed
     independently stay valid until the pool session ends.
+
+    With hooks, the job directory gets the trusted copy that the container
+    mounts read-only over the home's hooks.json, and the home gets the same
+    bytes as the mount point.
     """
+    if hooks is not None:
+        (job_dir / JOB_HOOKS).write_bytes(hooks)
     found = _newest_signin()
     # Every directory below the job directory is agent-writable, so a round
     # could have replaced one with a link to somewhere on the host. Descend
@@ -284,6 +314,8 @@ def seed_home(job_dir: Path) -> Path:
             label, source, token = found
             _write_private(fd, TOKEN_FILE, token)
             _write_private(fd, "settings.json", _job_settings(label, source))
+        if hooks is not None:
+            _write_private(fd, HOOKS_FILE, hooks)
     finally:
         os.close(fd)
     return job_home(job_dir)
@@ -542,6 +574,7 @@ class Mounts:
 
     def __init__(self, worktree: Path, job_dir: Path, plugin_root: Path, read_dirs: list[Path], writable: bool):
         self.worktree = worktree
+        self.job_dir = job_dir
         self.job_mount = job_mount(job_dir)
         self.plugin_root = plugin_root
         self.read_dirs = read_dirs
@@ -555,6 +588,13 @@ class Mounts:
             raise RuntimeError("docker is not installed or not on PATH")
         if not self.home.is_dir():
             raise RuntimeError(f"the job's home {self.home} has not been seeded")
+        policy = self.job_dir / POLICY_FILE
+        hooks = self.job_dir / JOB_HOOKS
+        # Docker would create a missing source as a directory on the host.
+        for path in (policy, hooks):
+            if not path.is_file():
+                raise RuntimeError(f"the job's {path.name} has not been written")
+        home_hooks = self.home / ".gemini" / "antigravity-cli" / HOOKS_FILE
         command = [
             str(binary),
             "run",
@@ -568,6 +608,9 @@ class Mounts:
             f"--volume={self.worktree}:{self.worktree}" + ("" if self.writable else ":ro"),
             f"--volume={self.job_mount}:{self.job_mount}",
             f"--volume={self.plugin_root}:{self.plugin_root}:ro",
+            # Read-only, so agy cannot change its own policy or remove the hook.
+            f"--volume={policy}:{policy}:ro",
+            f"--volume={hooks}:{home_hooks}:ro",
         ]
         for directory in self.read_dirs:
             command.append(f"--volume={directory}:{directory}:ro")
